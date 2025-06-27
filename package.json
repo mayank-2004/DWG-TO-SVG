@@ -13,6 +13,8 @@
     "@mlightcad/libredwg-web": "^0.1.5",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-draggable": "^4.4.6",
+    "uuid": "^11.1.0",
     "vite-plugin-copy": "^0.1.6"
   },
   "devDependencies": {

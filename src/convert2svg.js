@@ -21,14 +21,14 @@
 //         const end = e.end || e.endPoint;
 //         updateBounds(start.x, start.y);
 //         updateBounds(end.x, end.y);
-//         content += `<line x1="${start.x}" y1="${-start.y}" x2="${end.x}" y2="${-end.y}" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="1"/>`;
+//         content += `<line x1="${start.x}" y1="${-start.y}" x2="${end.x}" y2="${-end.y}" stroke="rgb(${color.r},${color.g},${color.b})" strokeWidth="1"/>`;
 //       }
 //       else if (e.type === 'CIRCLE' && e.center && typeof e.radius === 'number') {
 //         const radius = Math.abs(e.radius);
 //         if (radius <= 0) continue;
 //         updateBounds(e.center.x - radius, e.center.y - radius);
 //         updateBounds(e.center.x + radius, e.center.y + radius);
-//         content += `<circle cx="${e.center.x}" cy="${-e.center.y}" r="${radius}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="1"/>`;
+//         content += `<circle cx="${e.center.x}" cy="${-e.center.y}" r="${radius}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="1"/>`;
 //       }
 //       else if (e.type === 'TEXT' && e.insert && e.text) {
 //         updateBounds(e.insert.x, e.insert.y);
@@ -48,7 +48,7 @@
 //         updateBounds(sx, sy);
 //         updateBounds(ex, ey);
 //         const largeArc = (endAngle - startAngle) % (2 * Math.PI) > Math.PI ? 1 : 0;
-//         content += `<path d="M ${sx} ${-sy} A ${radius} ${radius} 0 ${largeArc} 0 ${ex} ${-ey}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="1"/>`;
+//         content += `<path d="M ${sx} ${-sy} A ${radius} ${radius} 0 ${largeArc} 0 ${ex} ${-ey}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="1"/>`;
 //       }
 //       else if (e.type === 'ELLIPSE' && e.center && e.majorAxisEndPoint) {
 //         const rawRx = e.majorAxisEndPoint?.x ?? 0;
@@ -57,21 +57,21 @@
 //         if (rx <= 0 || ry <= 0) continue;
 //         updateBounds(e.center.x - rx, e.center.y - ry);
 //         updateBounds(e.center.x + rx, e.center.y + ry);
-//         content += `<ellipse cx="${e.center.x}" cy="${-e.center.y}" rx="${rx}" ry="${ry}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="1"/>`;
+//         content += `<ellipse cx="${e.center.x}" cy="${-e.center.y}" rx="${rx}" ry="${ry}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="1"/>`;
 //       }
 //       else if (e.type === 'POLYLINE' && Array.isArray(e.vertices)) {
 //         const points = e.vertices.map(v => {
 //           updateBounds(v.x, v.y);
 //           return `${v.x},${-v.y}`;
 //         }).join(' ');
-//         content += `<polyline points="${points}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="1"/>`;
+//         content += `<polyline points="${points}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="1"/>`;
 //       }
 //       else if (e.type === 'LWPOLYLINE' && Array.isArray(e.vertices)) {
 //         const points = e.vertices.map(v => {
 //           updateBounds(v.x, v.y);
 //           return `${v.x},${-v.y}`;
 //         }).join(' ');
-//         content += `<polyline points="${points}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="1"/>`;
+//         content += `<polyline points="${points}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="1"/>`;
 //       }
 //       else if (e.type === 'SOLID' && Array.isArray(e.points) && e.points.length === 4) {
 //         const points = e.points.map(p => {
@@ -202,14 +202,14 @@
 //         const end = e.end || e.endPoint;
 //         updateBounds(start.x, start.y);
 //         updateBounds(end.x, end.y);
-//         content += `<line x1="${start.x}" y1="${-start.y}" x2="${end.x}" y2="${-end.y}" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//         content += `<line x1="${start.x}" y1="${-start.y}" x2="${end.x}" y2="${-end.y}" stroke="rgb(${color.r},${color.g},${color.b})" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //       }
 //       else if (e.type === 'CIRCLE' && e.center && typeof e.radius === 'number') {
 //         const radius = Math.abs(e.radius);
 //         if (radius <= 0) continue;
 //         updateBounds(e.center.x - radius, e.center.y - radius);
 //         updateBounds(e.center.x + radius, e.center.y + radius);
-//         content += `<circle cx="${e.center.x}" cy="${-e.center.y}" r="${radius}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//         content += `<circle cx="${e.center.x}" cy="${-e.center.y}" r="${radius}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //       }
 //       else if (e.type === 'TEXT' && e.insert && e.text) {
 //         updateBounds(e.insert.x, e.insert.y);
@@ -229,7 +229,7 @@
 //         updateBounds(sx, sy);
 //         updateBounds(ex, ey);
 //         const largeArc = (endAngle - startAngle) % (2 * Math.PI) > Math.PI ? 1 : 0;
-//         content += `<path d="M ${sx} ${-sy} A ${radius} ${radius} 0 ${largeArc} 0 ${ex} ${-ey}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//         content += `<path d="M ${sx} ${-sy} A ${radius} ${radius} 0 ${largeArc} 0 ${ex} ${-ey}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //       }
 //       else if (e.type === 'ELLIPSE' && e.center && e.majorAxisEndPoint) {
 //         const rawRx = e.majorAxisEndPoint?.x ?? 0;
@@ -238,14 +238,14 @@
 //         if (rx <= 0 || ry <= 0) continue;
 //         updateBounds(e.center.x - rx, e.center.y - ry);
 //         updateBounds(e.center.x + rx, e.center.y + ry);
-//         content += `<ellipse cx="${e.center.x}" cy="${-e.center.y}" rx="${rx}" ry="${ry}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//         content += `<ellipse cx="${e.center.x}" cy="${-e.center.y}" rx="${rx}" ry="${ry}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //       }
 //       else if ((e.type === 'POLYLINE' || e.type === 'LWPOLYLINE') && Array.isArray(e.vertices)) {
 //         const points = e.vertices.map(v => {
 //           updateBounds(v.x, v.y);
 //           return `${v.x},${-v.y}`;
 //         }).join(' ');
-//         content += `<polyline points="${points}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//         content += `<polyline points="${points}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //       }
 //       else if (e.type === 'SOLID' && Array.isArray(e.points) && e.points.length === 4) {
 //         const points = e.points.map(p => {
@@ -266,7 +266,7 @@
 //       else if (e.type === 'SPLINE' && Array.isArray(e.controlPoints)) {
 //         const d = e.controlPoints.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt.x} ${-pt.y}`).join(' ');
 //         e.controlPoints.forEach(pt => updateBounds(pt.x, pt.y));
-//         content += `<path d="${d}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="${normalizeStrokeWidth(e.lineweight)}" />`;
+//         content += `<path d="${d}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="${normalizeStrokeWidth(e.lineweight)}" />`;
 //       }
 //       else if (e.type === 'DIMENSION' && e.textMidPoint && e.text) {
 //         updateBounds(e.textMidPoint.x, e.textMidPoint.y);
@@ -277,14 +277,14 @@
 //           updateBounds(p.x, p.y);
 //           return `${p.x},${-p.y}`;
 //         }).join(' ');
-//         content += `<polygon points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//         content += `<polygon points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //       }
 //       else if (e.type === 'REGION' && Array.isArray(e.vertices)) {
 //         const points = e.vertices.map(p => {
 //           updateBounds(p.x, p.y);
 //           return `${p.x},${-p.y}`;
 //         }).join(' ');
-//         content += `<polygon points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//         content += `<polygon points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //       }
 //       else if ((e.type === 'ATTRIB' || e.type === 'ATTDEF') && e.text && e.insert) {
 //         updateBounds(e.insert.x, e.insert.y);
@@ -293,13 +293,13 @@
 //       else if (e.type === 'LEADER' && Array.isArray(e.vertices)) {
 //         const points = e.vertices.map(v => `${v.x},${-v.y}`).join(' ');
 //         e.vertices.forEach(v => updateBounds(v.x, v.y));
-//         content += `<polyline points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//         content += `<polyline points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //       }
 //       else if (e.type === 'MLEADER' && Array.isArray(e.leaderLines)) {
 //         e.leaderLines.forEach(line => {
 //           const points = line.vertices.map(v => `${v.x},${-v.y}`).join(' ');
 //           line.vertices.forEach(v => updateBounds(v.x, v.y));
-//           content += `<polyline points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//           content += `<polyline points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //         });
 //         if (e.text && e.textPosition) {
 //           updateBounds(e.textPosition.x, e.textPosition.y);
@@ -321,7 +321,7 @@
 //         };
 //         updateBounds(e.basePoint.x, e.basePoint.y);
 //         updateBounds(end.x, end.y);
-//         content += `<line x1="${e.basePoint.x}" y1="${-e.basePoint.y}" x2="${end.x}" y2="${-end.y}" stroke="rgb(${color.r},${color.g},${color.b})" stroke-dasharray="5,5" stroke-width="0.5" />`;
+//         content += `<line x1="${e.basePoint.x}" y1="${-e.basePoint.y}" x2="${end.x}" y2="${-end.y}" stroke="rgb(${color.r},${color.g},${color.b})" stroke-dasharray="5,5" strokeWidth="0.5" />`;
 //       }
 //       else if (e.type === 'TRACE' && Array.isArray(e.points) && e.points.length === 4) {
 //         const points = e.points.map(p => {
@@ -477,7 +477,7 @@
 //         const y2 = roundCoord(end.y);
 //         updateBounds(x1, y1);
 //         updateBounds(x2, y2);
-//         entityContent = `<line x1="${x1}" y1="${-y1}" x2="${x2}" y2="${-y2}" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="${normalizeStrokeWidth(e.lineweight)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+//         entityContent = `<line x1="${x1}" y1="${-y1}" x2="${x2}" y2="${-y2}" stroke="rgb(${color.r},${color.g},${color.b})" strokeWidth="${normalizeStrokeWidth(e.lineweight)}" stroke-linecap="round" stroke-linejoin="round"/>`;
 //       }
 //       else if (e.type === 'CIRCLE' && e.center && typeof e.radius === 'number') {
 //         const radius = Math.abs(e.radius);
@@ -486,7 +486,7 @@
 //         const cy = roundCoord(e.center.y);
 //         updateBounds(cx - radius, cy - radius);
 //         updateBounds(cx + radius, cy + radius);
-//         entityContent = `<circle cx="${cx}" cy="${-cy}" r="${radius}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="${normalizeStrokeWidth(e.lineweight)}" stroke-linecap="round"/>`;
+//         entityContent = `<circle cx="${cx}" cy="${-cy}" r="${radius}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="${normalizeStrokeWidth(e.lineweight)}" stroke-linecap="round"/>`;
 //       }
 //       else if (e.type === 'TEXT' && e.insert && e.text) {
 //         updateBounds(e.insert.x, e.insert.y);
@@ -506,7 +506,7 @@
 //         updateBounds(sx, sy);
 //         updateBounds(ex, ey);
 //         const largeArc = (endAngle - startAngle) % (2 * Math.PI) > Math.PI ? 1 : 0;
-//         entityContent = `<path d="M ${sx} ${-sy} A ${radius} ${radius} 0 ${largeArc} 0 ${ex} ${-ey}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//         entityContent = `<path d="M ${sx} ${-sy} A ${radius} ${radius} 0 ${largeArc} 0 ${ex} ${-ey}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //       }
 //       else if (e.type === 'ELLIPSE' && e.center && e.majorAxisEndPoint) {
 //         const rawRx = e.majorAxisEndPoint?.x ?? 0;
@@ -515,7 +515,7 @@
 //         if (rx <= 0 || ry <= 0) return;
 //         updateBounds(e.center.x - rx, e.center.y - ry);
 //         updateBounds(e.center.x + rx, e.center.y + ry);
-//         entityContent = `<ellipse cx="${e.center.x}" cy="${-e.center.y}" rx="${rx}" ry="${ry}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//         entityContent = `<ellipse cx="${e.center.x}" cy="${-e.center.y}" rx="${rx}" ry="${ry}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //       }
 //       else if ((e.type === 'POLYLINE' || e.type === 'LWPOLYLINE') && Array.isArray(e.vertices)) {
 //         const points = e.vertices.map(v => {
@@ -524,7 +524,7 @@
 //           updateBounds(x, y);
 //           return `${x},${-y}`;
 //         }).join(' ');
-//         entityContent = `<polyline points="${points}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="${normalizeStrokeWidth(e.lineweight)}" stroke-linecap="ro  und" stroke-linejoin="round"/>`;
+//         entityContent = `<polyline points="${points}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="${normalizeStrokeWidth(e.lineweight)}" stroke-linecap="ro  und" stroke-linejoin="round"/>`;
 //       }
 //       else if (e.type === 'SOLID' && Array.isArray(e.points) && e.points.length === 4) {
 //         const points = e.points.map(p => {
@@ -545,7 +545,7 @@
 //       else if (e.type === 'SPLINE' && Array.isArray(e.controlPoints)) {
 //         const d = e.controlPoints.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt.x} ${-pt.y}`).join(' ');
 //         e.controlPoints.forEach(pt => updateBounds(pt.x, pt.y));
-//         entityContent = `<path d="${d}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" stroke-width="${normalizeStrokeWidth(e.lineweight)}" />`;
+//         entityContent = `<path d="${d}" stroke="rgb(${color.r},${color.g},${color.b})" fill="none" strokeWidth="${normalizeStrokeWidth(e.lineweight)}" />`;
 //       }
 //       else if (e.type === 'DIMENSION' && e.textMidPoint && e.text) {
 //         updateBounds(e.textMidPoint.x, e.textMidPoint.y);
@@ -556,14 +556,14 @@
 //           updateBounds(p.x, p.y);
 //           return `${p.x},${-p.y}`;
 //         }).join(' ');
-//         entityContent = `<polygon points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//         entityContent = `<polygon points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //       }
 //       else if (e.type === 'REGION' && Array.isArray(e.vertices)) {
 //         const points = e.vertices.map(p => {
 //           updateBounds(p.x, p.y);
 //           return `${p.x},${-p.y}`;
 //         }).join(' ');
-//         entityContent = `<polygon points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//         entityContent = `<polygon points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //       }
 //       else if ((e.type === 'ATTRIB' || e.type === 'ATTDEF') && e.text && e.insert) {
 //         updateBounds(e.insert.x, e.insert.y);
@@ -572,14 +572,14 @@
 //       else if (e.type === 'LEADER' && Array.isArray(e.vertices)) {
 //         const points = e.vertices.map(v => `${v.x},${-v.y}`).join(' ');
 //         e.vertices.forEach(v => updateBounds(v.x, v.y));
-//         entityContent = `<polyline points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//         entityContent = `<polyline points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //       }
 //       else if (e.type === 'MLEADER' && Array.isArray(e.leaderLines)) {
 //         let mleaderContent = '';
 //         e.leaderLines.forEach(line => {
 //           const points = line.vertices.map(v => `${v.x},${-v.y}`).join(' ');
 //           line.vertices.forEach(v => updateBounds(v.x, v.y));
-//           mleaderContent += `<polyline points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`;
+//           mleaderContent += `<polyline points="${points}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`;
 //         });
 //         if (e.text && e.textPosition) {
 //           updateBounds(e.textPosition.x, e.textPosition.y);
@@ -602,7 +602,7 @@
 //         };
 //         updateBounds(e.basePoint.x, e.basePoint.y);
 //         updateBounds(end.x, end.y);
-//         entityContent = `<line x1="${e.basePoint.x}" y1="${-e.basePoint.y}" x2="${end.x}" y2="${-end.y}" stroke="rgb(${color.r},${color.g},${color.b})" stroke-dasharray="5,5" stroke-width="0.5" />`;
+//         entityContent = `<line x1="${e.basePoint.x}" y1="${-e.basePoint.y}" x2="${end.x}" y2="${-end.y}" stroke="rgb(${color.r},${color.g},${color.b})" stroke-dasharray="5,5" strokeWidth="0.5" />`;
 //       }
 //       else if (e.type === 'TRACE' && Array.isArray(e.points) && e.points.length === 4) {
 //         const points = e.points.map(p => {
@@ -778,7 +778,7 @@ export function convertToSvg(db) {
 
   for (const e of entities) {
     const color = e.color || { r: 0, g: 0, b: 0 };
-    const stroke = `stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="${normalizeStrokeWidth()}"`;
+    const stroke = `stroke="rgb(${color.r},${color.g},${color.b})" strokeWidth="${normalizeStrokeWidth()}"`;
     const layer = e.layer;
 
     try {
@@ -787,7 +787,7 @@ export function convertToSvg(db) {
         const end = e.end || e.endPoint;
         updateBounds(start.x, start.y);
         updateBounds(end.x, end.y);
-        appendToLayer(layer, `<line x1="${round(start.x)}" y1="${-round(start.y)}" x2="${round(end.x)}" y2="${-round(end.y)}" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="${normalizeStrokeWidth(e.lineweight)}"/>`);
+        appendToLayer(layer, `<line x1="${round(start.x)}" y1="${-round(start.y)}" x2="${round(end.x)}" y2="${-round(end.y)}" stroke="rgb(${color.r},${color.g},${color.b})" strokeWidth="${normalizeStrokeWidth(e.lineweight)}"/>`);
       }
 
       else if (e.type === 'LWPOLYLINE' || e.type === 'POLYLINE') {
@@ -937,7 +937,7 @@ export function convertToSvg(db) {
         };
         updateBounds(e.basePoint.x, e.basePoint.y);
         updateBounds(end.x, end.y);
-        appendToLayer(layer, `<line x1="${round(e.basePoint.x)}" y1="${-round(e.basePoint.y)}" x2="${round(end.x)}" y2="${-round(end.y)}" stroke="rgb(${color.r},${color.g},${color.b})" stroke-dasharray="5,5" stroke-width="0.5" />`);
+        appendToLayer(layer, `<line x1="${round(e.basePoint.x)}" y1="${-round(e.basePoint.y)}" x2="${round(end.x)}" y2="${-round(end.y)}" stroke="rgb(${color.r},${color.g},${color.b})" stroke-dasharray="5,5" strokeWidth="0.5" />`);
       }
 
       else if (e.type === 'TRACE' && Array.isArray(e.points) && e.points.length === 4) {
@@ -957,7 +957,6 @@ export function convertToSvg(db) {
       }
 
       else if (e.type === 'INSERT') {
-        console.log('DEBUG INSERT entity:', e);
         if ((e.blockName || e.name) && Array.isArray(db.blocks)) {
           const blockName = e.blockName || e.name;
           const block = db.blocks.find(b => b.name === blockName);
@@ -987,11 +986,9 @@ export function convertToSvg(db) {
           console.warn(`INSERT entity skipped — missing blockName/name or invalid db.blocks`, e);
         }
       }
-
       else {
         console.warn(`Unhandled entity: ${e.type}`, e);
       }
-
     } catch (err) {
       console.warn('Failed to render entity:', e, err);
     }
