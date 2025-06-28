@@ -1,203 +1,3 @@
-// import React, { useState, useRef } from 'react';
-
-// const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
-//     const [isDragging, setIsDragging] = useState(false);
-//     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-//     const elementRef = useRef(null);
-
-//     const handleMouseDown = (e) => {
-//         if (!isSelecting) return;
-
-//         e.stopPropagation();
-//         setIsDragging(true);
-//         const rect = e.currentTarget.closest('svg').getBoundingClientRect();
-//         setDragStart({
-//             x: e.clientX - rect.left,
-//             y: e.clientY - rect.top
-//         });
-//         onClick(e);
-//     };
-
-//     const handleMouseMove = (e) => {
-//         if (!isDragging || !isSelecting) return;
-
-//         const rect = e.currentTarget.closest('svg').getBoundingClientRect();
-//         const currentX = e.clientX - rect.left;
-//         const currentY = e.clientY - rect.top;
-
-//         const deltaX = currentX - dragStart.x;
-//         const deltaY = currentY - dragStart.y;
-
-//         onMove(deltaX, deltaY);
-
-//         setDragStart({ x: currentX, y: currentY });
-//     };
-
-//     const handleMouseUp = () => {
-//         setIsDragging(false);
-//     };
-
-//     // Add event listeners for mouse move and up to the document
-//     React.useEffect(() => {
-//         if (isDragging) {
-//             document.addEventListener('mousemove', handleMouseMove);
-//             document.addEventListener('mouseup', handleMouseUp);
-
-//             return () => {
-//                 document.removeEventListener('mousemove', handleMouseMove);
-//                 document.removeEventListener('mouseup', handleMouseUp);
-//             };
-//         }
-//     }, [isDragging, dragStart]);
-
-//     const renderElement = () => {
-//         let { type, attributes } = element;
-//         const className = `svg-element ${isSelected ? 'selected' : ''}`;
-
-//         // Add selection outline for selected elements
-//         const selectionProps = isSelected ? {
-//             stroke: 'red',
-//             strokeWidth: '2',
-//             strokeDasharray: '5,5',
-//             fill: attributes.fill === 'none' ? 'none' : attributes.fill
-//         } : {};
-
-//         const commonProps = {
-//             ref: elementRef,
-//             className,
-//             onMouseDown: handleMouseDown,
-//             style: { cursor: isSelecting ? 'move' : 'pointer' },
-//             ...attributes,
-//             ...selectionProps
-//         };
-
-//         type = (element?.type || '').toLowerCase();
-//         switch (type) {
-//             case 'line':
-//                 return <line {...commonProps} />;
-//             case 'circle':
-//                 return <circle {...commonProps} />;
-//             case 'ellipse':
-//                 return <ellipse {...commonProps} />;
-//             case 'polyline':
-//                 return <polyline {...commonProps} />;
-//             case 'text':
-//                 return <text {...commonProps}>{attributes.children || ''}</text>;
-//             case 'arc':
-//                 return <path {...commonProps} d={`M ${attributes.x1} ${attributes.y1} A ${attributes.rx} ${attributes.ry} 0 ${attributes.largeArcFlag || 0} ${attributes.sweepFlag || 0} ${attributes.x2} ${attributes.y2}`} />;
-//             case 'image':
-//                 return <image {...commonProps} href={attributes.href} />;
-//             case 'lwpolyline':
-//                 return <polyline {...commonProps} points={attributes.points} />;
-//             case 'hatch':
-//                 return <polygon {...commonProps} points={attributes.points} fill={attributes.fill || 'none'} stroke={attributes.stroke || 'black'} strokeWidth={attributes['strokeWidth'] || 1} />;
-//             case 'solid':
-//                 return <polygon {...commonProps} points={attributes.points} fill={attributes.fill || 'black'} stroke={attributes.stroke || 'none'} strokeWidth={attributes['strokeWidth'] || 1} />;
-//             case 'mtext':
-//                 return <text {...commonProps} x={attributes.x} y={attributes.y} fontSize={attributes['fontSize'] || '16'}>{attributes.children || ''}</text>;
-//             case 'point':
-//                 return <circle {...commonProps} cx={attributes.x} cy={attributes.y} r={attributes.r || 2} fill={attributes.fill || 'black'} />;
-//             case 'ole2frame':
-//                 return <rect {...commonProps} x={attributes.x} y={attributes.y} width={attributes.width} height={attributes.height} fill={attributes.fill || 'none'} stroke={attributes.stroke || 'black'} strokeWidth={attributes['strokeWidth'] || 1} />;
-//             case 'spline':
-//                 return <path {...commonProps} d={attributes.d} />;
-//             case 'dimension':
-//                 return (
-//                     <g {...commonProps}>
-//                         <line x1={attributes.x1} y1={attributes.y1} x2={attributes.x2} y2={attributes.y2} stroke={attributes.stroke || 'black'} strokeWidth={attributes['strokeWidth'] || 1} />
-//                         {attributes.text && <text x={(attributes.x1 + attributes.x2) / 2} y={(attributes.y1 + attributes.y2) / 2} fontSize={attributes['fontSize'] || '12'}>{attributes.text}</text>}
-//                     </g>
-//                 );
-//             case '3dface':
-//                 return (
-//                     <polygon {...commonProps} points={attributes.points} fill={attributes.fill || 'none'} stroke={attributes.stroke || 'black'} strokeWidth={attributes['strokeWidth'] || 1} />
-//                 );
-//             case 'region':
-//                 return (
-//                     <polygon {...commonProps} points={attributes.points} fill={attributes.fill || 'none'} stroke={attributes.stroke || 'black'} strokeWidth={attributes['strokeWidth'] || 1} />);
-//             case 'attrib':
-//                 return (
-//                     <text {...commonProps} x={attributes.x} y={attributes.y} fontSize={attributes['fontSize'] || '12'} fill={attributes.fill || 'black'}>
-//                         {attributes.text || ''}
-//                     </text>
-//                 );
-//             case 'attdef':
-//                 return (
-//                     <text {...commonProps} x={attributes.x} y={attributes.y} fontSize={attributes['fontSize'] || '12'} fill={attributes.fill || 'black'}>
-//                         {attributes.text || ''}
-//                     </text>
-//                 );
-//             case 'leader':
-//                 return (
-//                     <g {...commonProps}>
-//                         <line x1={attributes.x1} y1={attributes.y1} x2={attributes.x2} y2={attributes.y2} stroke={attributes.stroke || 'black'} strokeWidth={attributes['strokeWidth'] || 1} />
-//                         {attributes.text && <text x={(attributes.x1 + attributes.x2) / 2} y={(attributes.y1 + attributes.y2) / 2} fontSize={attributes['fontSize'] || '12'}>{attributes.text}</text>}
-//                     </g>
-//                 );
-//             case 'mleader':
-//                 return (
-//                     <g {...commonProps}>
-//                         <line x1={attributes.x1} y1={attributes.y1} x2={attributes.x2} y2={attributes.y2} stroke={attributes.stroke || 'black'} strokeWidth={attributes['strokeWidth'] || 1} />
-//                         {attributes.text && <text x={(attributes.x1 + attributes.x2) / 2} y={(attributes.y1 + attributes.y2) / 2} fontSize={attributes['fontSize'] || '12'}>{attributes.text}</text>}
-//                     </g>
-//                 );
-//             case 'ray':
-//                 return (
-//                     <line {...commonProps} x1={attributes.x1} y1={attributes.y1} x2={attributes.x2} y2={attributes.y2} stroke={attributes.stroke || 'black'} strokeWidth={attributes['strokeWidth'] || 1} />
-//                 );
-//             case 'xline':
-//                 return (
-//                     <line {...commonProps} x1={attributes.x1} y1={attributes.y1} x2={attributes.x2} y2={attributes.y2} stroke={attributes.stroke || 'black'} strokeWidth={attributes['strokeWidth'] || 1} />
-//                 );
-//             case 'trace':
-//                 return (
-//                     <path {...commonProps} d={attributes.d} fill={attributes.fill || 'none'} stroke={attributes.stroke || 'black'} strokeWidth={attributes['strokeWidth'] || 1} />
-//                 );
-//             case 'wipeout':
-//                 return (
-//                     <rect {...commonProps} x={attributes.x} y={attributes.y} width={attributes.width} height={attributes.height} fill={attributes.fill || 'none'} stroke={attributes.stroke || 'black'} strokeWidth={attributes['strokeWidth'] || 1} />
-//                 );
-//             case 'insert':
-//                 return (
-//                     <g {...commonProps}>
-//                         <use href={`#${attributes.blockName}`} x={attributes.x} y={attributes.y} />
-//                         {attributes.children && attributes.children.map((child, index) => (
-//                             <SVGElement key={index} element={child} isSelected={isSelected} onClick={onClick} onMove={onMove} isSelecting={isSelecting} />
-//                         ))}
-//                     </g>
-//                 );
-//             case 'g':
-//                 return (
-//                     <g {...commonProps}>
-//                         {attributes.children && attributes.children.map((child, index) => (
-//                             <SVGElement key={index} element={child} isSelected={isSelected} onClick={onClick} onMove={onMove} isSelecting={isSelecting} />
-//                         ))}
-//                     </g>
-//                 );
-//             default:
-//                 console.warn(`Unsupported element type: ${type}`);
-//                 return null;
-//         }
-//     };
-
-//     return renderElement();
-// };
-
-// export default SVGElement;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import React, { useState, useRef } from 'react';
 
 const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
@@ -215,7 +15,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
             x: e.clientX - rect.left,
             y: e.clientY - rect.top
         });
-        onClick(e);
+        onClick(element.id, e);
     };
 
     const handleMouseMove = (e) => {
@@ -286,7 +86,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                         x2={attributes.x2 || 0}
                         y2={attributes.y2 || 0}
                         stroke={attributes.stroke || 'black'}
-                        strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                        strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                         fill="none"
                     />
                 );
@@ -299,7 +99,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                         cy={attributes.cy || 0}
                         r={attributes.r || 1}
                         stroke={attributes.stroke || 'black'}
-                        strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                        strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                         fill={attributes.fill || 'none'}
                     />
                 );
@@ -313,7 +113,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                         rx={attributes.rx || 1}
                         ry={attributes.ry || 1}
                         stroke={attributes.stroke || 'black'}
-                        strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                        strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                         fill={attributes.fill || 'none'}
                     />
                 );
@@ -325,7 +125,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                         {...commonProps}
                         points={attributes.points || ''}
                         stroke={attributes.stroke || 'black'}
-                        strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                        strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                         fill={attributes.fill || 'none'}
                     />
                 );
@@ -336,7 +136,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                         {...commonProps}
                         points={attributes.points || ''}
                         stroke={attributes.stroke || 'black'}
-                        strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                        strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                         fill={attributes.fill || 'none'}
                     />
                 );
@@ -347,7 +147,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                         {...commonProps}
                         d={attributes.d || ''}
                         stroke={attributes.stroke || 'black'}
-                        strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                        strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                         fill={attributes.fill || 'none'}
                     />
                 );
@@ -375,7 +175,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                         width={attributes.width || 0}
                         height={attributes.height || 0}
                         stroke={attributes.stroke || 'black'}
-                        strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                        strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                         fill={attributes.fill || 'none'}
                     />
                 );
@@ -388,7 +188,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                         {...commonProps}
                         d={`M ${attributes.x1 || 0} ${attributes.y1 || 0} A ${rx} ${ry} 0 ${attributes['large-arc-flag'] || 0} ${attributes['sweep-flag'] || 0} ${attributes.x2 || 0} ${attributes.y2 || 0}`}
                         stroke={attributes.stroke || 'black'}
-                        strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                        strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                         fill="none"
                     />
                 );
@@ -413,7 +213,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                         points={attributes.points || ''}
                         fill={type === 'solid' ? (attributes.fill || 'gray') : 'none'}
                         stroke={attributes.stroke || 'black'}
-                        strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                        strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                         fillRule="evenodd"
                     />
                 );
@@ -455,7 +255,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                         height={attributes.height || 0}
                         fill={attributes.fill || (type === 'wipeout' ? 'white' : 'none')}
                         stroke={attributes.stroke || 'black'}
-                        strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                        strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                     />
                 );
 
@@ -466,7 +266,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                         {...commonProps}
                         d={attributes.d || ''}
                         stroke={attributes.stroke || 'black'}
-                        strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                        strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                         fill={attributes.fill || 'none'}
                     />
                 );
@@ -480,7 +280,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                             x2={attributes.x2 || 0}
                             y2={attributes.y2 || 0}
                             stroke={attributes.stroke || 'black'}
-                            strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                            strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                         />
                         {attributes.text && (
                             <text
@@ -504,7 +304,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                         points={attributes.points || ''}
                         fill={attributes.fill || 'none'}
                         stroke={attributes.stroke || 'black'}
-                        strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                        strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                     />
                 );
 
@@ -533,7 +333,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                             x2={attributes.x2 || 0}
                             y2={attributes.y2 || 0}
                             stroke={attributes.stroke || 'black'}
-                            strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                            strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                         />
                         {attributes.text && (
                             <text
@@ -559,7 +359,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                         x2={attributes.x2 || 0}
                         y2={attributes.y2 || 0}
                         stroke={attributes.stroke || 'black'}
-                        strokeWidth={attributes['stroke-width'] || attributes.strokeWidth || 1}
+                        strokeWidth={attributes['stroke-width'] ?? attributes.strokeWidth ?? 1}
                     />
                 );
 
