@@ -1,24 +1,25 @@
 import React, { useState, useEffect } from 'react';
 
-const LayerPanel = ({ elements, onLayerVisibilityChange, onElementSelect }) => {
-  const [hiddenLayers, setHiddenLayers] = useState(new Set());
-  
-  // Get unique layers from elements
-  const layers = [...new Set(elements.map(el => el.layer))].sort();
-  
-  const toggleLayerVisibility = (layer) => {
-    const newHiddenLayers = new Set(hiddenLayers);
-    if (hiddenLayers.has(layer)) {
-      newHiddenLayers.delete(layer);
-    } else {
-      newHiddenLayers.add(layer);
+const LayerPanel = ({ elements, hiddenLayers, onLayerVisibilityChange }) => {
+  const [layerCounts, setLayerCounts] = useState({});
+
+  // Recursive layer extraction
+  const collectLayers = (items, counts = {}) => {
+    for (const el of items) {
+      const layer = el.layer || 'default';
+      counts[layer] = (counts[layer] || 0) + 1;
+      if (el.children?.length) collectLayers(el.children, counts);
     }
-    setHiddenLayers(newHiddenLayers);
-    onLayerVisibilityChange(layer, !hiddenLayers.has(layer));
+    return counts;
   };
 
-  const getLayerElementCount = (layer) => {
-    return elements.filter(el => el.layer === layer).length;
+  useEffect(() => {
+    setLayerCounts(collectLayers(elements));
+  }, [elements]);
+
+  const toggleLayerVisibility = (layer) => {
+    const currentlyHidden = hiddenLayers.has(layer);
+    onLayerVisibilityChange(layer, currentlyHidden); // callback will toggle it
   };
 
   const panelStyle = {
@@ -52,17 +53,19 @@ const LayerPanel = ({ elements, onLayerVisibilityChange, onElementSelect }) => {
     transition: 'background-color 0.2s ease'
   };
 
+  const sortedLayers = Object.keys(layerCounts).sort();
+
   return (
     <div style={panelStyle}>
       <div style={headerStyle}>
-        Layers ({layers.length})
+        Layers ({sortedLayers.length})
       </div>
-      
+
       <div style={{ flex: 1, overflow: 'auto' }}>
-        {layers.map(layer => {
+        {sortedLayers.map(layer => {
           const isHidden = hiddenLayers.has(layer);
-          const elementCount = getLayerElementCount(layer);
-          
+          const count = layerCounts[layer];
+
           return (
             <div
               key={layer}
@@ -72,21 +75,17 @@ const LayerPanel = ({ elements, onLayerVisibilityChange, onElementSelect }) => {
               onClick={() => toggleLayerVisibility(layer)}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ 
-                  fontSize: '16px',
-                  opacity: isHidden ? 0.3 : 1
-                }}>
+                <span style={{ fontSize: '16px', opacity: isHidden ? 0.3 : 1 }}>
                   {isHidden ? '🙈' : '👁️'}
                 </span>
-                <span style={{ 
+                <span style={{
                   color: isHidden ? '#6c757d' : '#495057',
                   textDecoration: isHidden ? 'line-through' : 'none'
                 }}>
                   {layer}
                 </span>
               </div>
-              
-              <span style={{ 
+              <span style={{
                 background: isHidden ? '#6c757d' : '#007bff',
                 color: 'white',
                 padding: '2px 6px',
@@ -94,16 +93,16 @@ const LayerPanel = ({ elements, onLayerVisibilityChange, onElementSelect }) => {
                 fontSize: '11px',
                 fontWeight: '500'
               }}>
-                {elementCount}
+                {count}
               </span>
             </div>
           );
         })}
-        
-        {layers.length === 0 && (
-          <div style={{ 
-            padding: '20px', 
-            textAlign: 'center', 
+
+        {sortedLayers.length === 0 && (
+          <div style={{
+            padding: '20px',
+            textAlign: 'center',
             color: '#6c757d',
             fontSize: '13px'
           }}>

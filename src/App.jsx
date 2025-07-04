@@ -19,6 +19,7 @@ export default function App() {
     });
     const dwg = lib.dwg_read_data(buf, Dwg_File_Type.DWG);
     const db = lib.convert(dwg);
+    console.log("db:", db)
     if (!db || !Array.isArray(db.entities) || db.entities.length === 0) {
       console.warn('DWG file contains no drawable entities.');
       alert('This DWG file could not be parsed or has no drawable entities.');
@@ -29,13 +30,14 @@ export default function App() {
       db.tables.BLOCK_RECORD &&
       Array.isArray(db.tables.BLOCK_RECORD.entries)
     ) {
+      // console.log("entries:",db.tables.BLOCK_RECORD.entries)
       db.blocks = db.tables.BLOCK_RECORD.entries;
     }
     lib.dwg_free(dwg);
 
     const svgText = convertToSvg(db);
     setSvg(svgText);
-    setShowEditor(false); 
+    setShowEditor(false);
   };
 
   const download = () => {
@@ -53,12 +55,12 @@ export default function App() {
   return (
     <div style={{ margin: "2rem", fontFamily: "sans-serif" }}>
       <h1>DWG → SVG Viewer & Editor</h1>
-      
+
       <div style={{ marginBottom: '20px' }}>
         <input type="file" accept=".dwg" onChange={handle} />
         {svg && (
           <div style={{ marginTop: '10px' }}>
-            <button 
+            <button
               onClick={() => setShowEditor(!showEditor)}
               style={{
                 padding: '10px 20px',
@@ -72,7 +74,7 @@ export default function App() {
             >
               {showEditor ? 'View Mode' : 'Edit Mode'}
             </button>
-            <button 
+            <button
               onClick={download}
               style={{
                 padding: '10px 20px',
@@ -92,20 +94,20 @@ export default function App() {
       {svg && (
         <div>
           {showEditor ? (
-            <SVGEditor 
-              svgContent={svg} 
+            <SVGEditor
+              svgContent={svg}
               onSvgChange={handleSvgChange}
             />
           ) : (
-            <div 
-              style={{ 
-                border: "1px solid #ccc", 
-                padding: "1rem", 
+            <div
+              style={{
+                border: "1px solid #ccc",
+                padding: "1rem",
                 marginTop: "1rem",
                 maxHeight: '600px',
                 overflow: 'auto'
               }}
-              dangerouslySetInnerHTML={{ __html: svg }} 
+              dangerouslySetInnerHTML={{ __html: svg }}
             />
           )}
         </div>

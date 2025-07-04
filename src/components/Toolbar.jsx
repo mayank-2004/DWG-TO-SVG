@@ -10,6 +10,30 @@ const Toolbar = ({
 }) => {
     const [showProperties, setShowProperties] = useState(false);
 
+    const NumberInput = ({ label, value, onChange }) => (
+        <div style={{ marginBottom: '10px' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>{label}:</label>
+            <input
+                type="number"
+                value={value}
+                onChange={e => onChange(parseFloat(e.target.value))}
+                style={{ ...inputStyle, width: '80px' }}
+            />
+        </div>
+    );
+
+    const TextInput = ({ label, value, onChange }) => (
+        <div style={{ marginBottom: '10px' }}>
+            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>{label}:</label>
+            <input
+                type="text"
+                value={value}
+                onChange={e => onChange(e.target.value)}
+                style={{ padding: '4px 8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px', width: '200px' }}
+            />
+        </div>
+    );
+
     const handlePropertyChange = (property, value) => {
         if (selectedElement && onElementUpdate) {
             onElementUpdate(selectedElement.id, { [property]: value });
@@ -132,475 +156,86 @@ const Toolbar = ({
                 {/* Element-specific properties */}
                 {type === 'circle' && (
                     <>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Center X:</label>
-                            <input
-                                type="number"
-                                value={attributes.cx || 0}
-                                onChange={(e) => handlePropertyChange('cx', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Center Y:</label>
-                            <input
-                                type="number"
-                                value={attributes.cy || 0}
-                                onChange={(e) => handlePropertyChange('cy', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Radius:</label>
-                            <input
-                                type="number"
-                                value={attributes.r || 0}
-                                onChange={(e) => handlePropertyChange('r', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
+                        <NumberInput label="CX" value={attributes.cx || 0} onChange={val => handlePropertyChange('cx', val)} />
+                        <NumberInput label="CY" value={attributes.cy || 0} onChange={val => handlePropertyChange('cy', val)} />
+                        <NumberInput label="R" value={attributes.r || 0} onChange={val => handlePropertyChange('r', val)} />
+
                     </>
                 )}
 
                 {type === 'line' && (
                     <>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>X1:</label>
-                            <input
-                                type="number"
-                                value={attributes.x1 || 0}
-                                onChange={(e) => handlePropertyChange('x1', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Y1:</label>
-                            <input
-                                type="number"
-                                value={attributes.y1 || 0}
-                                onChange={(e) => handlePropertyChange('y1', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>X2:</label>
-                            <input
-                                type="number"
-                                value={attributes.x2 || 0}
-                                onChange={(e) => handlePropertyChange('x2', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Y2:</label>
-                            <input
-                                type="number"
-                                value={attributes.y2 || 0}
-                                onChange={(e) => handlePropertyChange('y2', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
+                        <NumberInput label="X1" value={attributes.x1 || 0} onChange={val => handlePropertyChange('x1', val)} />
+                        <NumberInput label="Y1" value={attributes.y1 || 0} onChange={val => handlePropertyChange('y1', val)} />
+                        <NumberInput label="X2" value={attributes.x2 || 0} onChange={val => handlePropertyChange('x2', val)} />
+                        <NumberInput label="Y2" value={attributes.y2 || 0} onChange={val => handlePropertyChange('y2', val)} />
+
                     </>
                 )}
 
                 {(type === 'text' || type === 'mtext') && (
                     <>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Text:</label>
-                            <input
-                                type="text"
-                                value={attributes.children || ''}
-                                onChange={(e) => handlePropertyChange('children', e.target.value)}
-                                style={{ ...inputStyle, width: '200px' }}
-                            />
-                        </div>
-                        {type === 'mtext' && (
-                            <>
-                                <div style={{ marginBottom: '10px' }}>
-                                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Position X:</label>
-                                    <input
-                                        type="number"
-                                        value={attributes.x || 0}
-                                        onChange={(e) => handlePropertyChange('x', parseFloat(e.target.value))}
-                                        style={{ ...inputStyle, width: '80px' }}
-                                    />
-                                </div>
-                                <div style={{ marginBottom: '10px' }}>
-                                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Position Y:</label>
-                                    <input
-                                        type="number"
-                                        value={attributes.y || 0}
-                                        onChange={(e) => handlePropertyChange('y', parseFloat(e.target.value))}
-                                        style={{ ...inputStyle, width: '80px' }}
-                                    />
-                                </div>
-                            </>
-                        )}
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Font Size:</label>
-                            <input
-                                type="number"
-                                value={attributes['font-size'] || 12}
-                                onChange={(e) => handlePropertyChange('font-size', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
+                        <TextInput label="Text" value={attributes.text || ''} onChange={val => handlePropertyChange('text', val)} />
+                        <NumberInput label="X" value={attributes.x || 0} onChange={val => handlePropertyChange('x', val)} />
+                        <NumberInput label="Y" value={attributes.y || 0} onChange={val => handlePropertyChange('y', val)} />
+                        <NumberInput label="Font Size" value={attributes['font-size'] || 12} onChange={val => handlePropertyChange('font-size', val)} />
+
                     </>
                 )}
 
-                {type === 'arc' && (
+                {type === 'arc' && type === 'dimension' && type === 'leader' && type === 'mleader' && type === 'ray' && type === 'xline.'(
                     <>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>X1:</label>
-                            <input
-                                type="number"
-                                value={attributes.x1 || 0}
-                                onChange={(e) => handlePropertyChange('x1', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Y1:</label>
-                            <input
-                                type="number"
-                                value={attributes.y1 || 0}
-                                onChange={(e) => handlePropertyChange('y1', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Radius X:</label>
-                            <input
-                                type="number"
-                                value={attributes.rx || 0}
-                                onChange={(e) => handlePropertyChange('rx', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Radius Y:</label>
-                            <input
-                                type="number"
-                                value={attributes.ry || 0}
-                                onChange={(e) => handlePropertyChange('ry', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>X2:</label>
-                            <input
-                                type="number"
-                                value={attributes.x2 || 0}
-                                onChange={(e) => handlePropertyChange('x2', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Y2:</label>
-                            <input
-                                type="number"
-                                value={attributes.y2 || 0}
-                                onChange={(e) => handlePropertyChange('y2', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
+                        <NumberInput label="X1" value={attributes.x1 || 0} onChange={val => handlePropertyChange('x1', val)} />
+                        <NumberInput label="Y1" value={attributes.y1 || 0} onChange={val => handlePropertyChange('y1', val)} />
+                        <NumberInput label="X2" value={attributes.x2 || 0} onChange={val => handlePropertyChange('x2', val)} />
+                        <NumberInput label="Y2" value={attributes.y2 || 0} onChange={val => handlePropertyChange('y2', val)} />
                     </>
                 )}
 
                 {type === 'ellipse' && (
                     <>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Center X:</label>
-                            <input
-                                type="number"
-                                value={attributes.cx || 0}
-                                onChange={(e) => handlePropertyChange('cx', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Center Y:</label>
-                            <input
-                                type="number"
-                                value={attributes.cy || 0}
-                                onChange={(e) => handlePropertyChange('cy', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Radius X:</label>
-                            <input
-                                type="number"
-                                value={attributes.rx || 0}
-                                onChange={(e) => handlePropertyChange('rx', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Radius Y:</label>
-                            <input
-                                type="number"
-                                value={attributes.ry || 0}
-                                onChange={(e) => handlePropertyChange('ry', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
+                        <NumberInput label="CX" value={attributes.cx || 0} onChange={val => handlePropertyChange('cx', val)} />
+                        <NumberInput label="CY" value={attributes.cy || 0} onChange={val => handlePropertyChange('cy', val)} />
+                        <NumberInput label="RX" value={attributes.rx || 0} onChange={val => handlePropertyChange('rx', val)} />
+                        <NumberInput label="RY" value={attributes.ry || 0} onChange={val => handlePropertyChange('ry', val)} />
                     </>
                 )}
 
-                {(type === 'polyline' || type === 'lwpolyline' || type === 'solid' || type === 'hatch' || type === '3dface' || type === 'region') && (
-                    <div style={{ marginBottom: '10px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Points:</label>
-                        <input
-                            type="text"
-                            value={attributes.points || ''}
-                            onChange={(e) => handlePropertyChange('points', e.target.value)}
-                            style={{ ...inputStyle, width: '200px' }}
-                        />
-                    </div>
+                {(type === 'polyline' || type === 'lwpolyline' || type === 'solid' || type === 'hatch' || type === '3dface' || type === 'region' || type === 'polygon') && (
+                    <TextInput label="Points" value={attributes.points || ''} onChange={val => handlePropertyChange('points', val)} />
                 )}
 
-                {(type === 'spline' || type === 'trace') && (
-                    <div style={{ marginBottom: '10px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Path Data:</label>
-                        <input
-                            type="text"
-                            value={attributes.d || ''}
-                            onChange={(e) => handlePropertyChange('d', e.target.value)}
-                            style={{ ...inputStyle, width: '200px' }}
-                        />
-                    </div>
+                {(type === 'spline' || type === 'trace' || type === 'path') && (
+                    <TextInput label="Path (d)" value={attributes.d || ''} onChange={val => handlePropertyChange('d', val)} />
                 )}
 
                 {type === 'point' && (
                     <>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>X:</label>
-                            <input
-                                type="number"
-                                value={attributes.x || 0}
-                                onChange={(e) => handlePropertyChange('x', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Y:</label>
-                            <input
-                                type="number"
-                                value={attributes.y || 0}
-                                onChange={(e) => handlePropertyChange('y', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Radius:</label>
-                            <input
-                                type="number"
-                                value={attributes.r || 2}
-                                onChange={(e) => handlePropertyChange('r', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                    </>
-                )}
-
-                {(type === 'dimension' || type === 'leader' || type === 'mleader') && (
-                    <>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>X1:</label>
-                            <input
-                                type="number"
-                                value={attributes.x1 || 0}
-                                onChange={(e) => handlePropertyChange('x1', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Y1:</label>
-                            <input
-                                type="number"
-                                value={attributes.y1 || 0}
-                                onChange={(e) => handlePropertyChange('y1', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>X2:</label>
-                            <input
-                                type="number"
-                                value={attributes.x2 || 0}
-                                onChange={(e) => handlePropertyChange('x2', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Y2:</label>
-                            <input
-                                type="number"
-                                value={attributes.y2 || 0}
-                                onChange={(e) => handlePropertyChange('y2', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Text:</label>
-                            <input
-                                type="text"
-                                value={attributes.text || ''}
-                                onChange={(e) => handlePropertyChange('text', e.target.value)}
-                                style={{ ...inputStyle, width: '200px' }}
-                            />
-                        </div>
+                        <NumberInput label="X" value={attributes.x || 0} onChange={val => handlePropertyChange('x', val)} />
+                        <NumberInput label="Y" value={attributes.y || 0} onChange={val => handlePropertyChange('y', val)} />
+                        <NumberInput label="Radius" value={attributes.r || 2} onChange={val => handlePropertyChange('r', val)} />
                     </>
                 )}
 
                 {(type === 'attrib' || type === 'attdef') && (
                     <>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>X:</label>
-                            <input
-                                type="number"
-                                value={attributes.x || 0}
-                                onChange={(e) => handlePropertyChange('x', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Y:</label>
-                            <input
-                                type="number"
-                                value={attributes.y || 0}
-                                onChange={(e) => handlePropertyChange('y', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Text:</label>
-                            <input
-                                type="text"
-                                value={attributes.text || ''}
-                                onChange={(e) => handlePropertyChange('text', e.target.value)}
-                                style={{ ...inputStyle, width: '200px' }}
-                            />
-                        </div>
+                        <NumberInput label="X" value={attributes.x || 0} onChange={val => handlePropertyChange('x', val)} />
+                        <NumberInput label="Y" value={attributes.y || 0} onChange={val => handlePropertyChange('y', val)} />
+                        <TextInput label="Text" value={attributes.text || ''} onChange={val => handlePropertyChange('text', val)} />
                     </>
                 )}
 
-                {(type === 'ole2frame' || type === 'wipeout' || type === 'insert') && (
+                {(type === 'ole2frame' || type === 'wipeout' || type === 'insert' || type === 'image' || type === 'rect') && (
                     <>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>X:</label>
-                            <input
-                                type="number"
-                                value={attributes.x || 0}
-                                onChange={(e) => handlePropertyChange('x', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Y:</label>
-                            <input
-                                type="number"
-                                value={attributes.y || 0}
-                                onChange={(e) => handlePropertyChange('y', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Width:</label>
-                            <input
-                                type="number"
-                                value={attributes.width || 0}
-                                onChange={(e) => handlePropertyChange('width', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Height:</label>
-                            <input
-                                type="number"
-                                value={attributes.height || 0}
-                                onChange={(e) => handlePropertyChange('height', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        {(type === 'insert' || type === 'image') && (
-                            <div style={{ marginBottom: '10px' }}>
-                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Image URL:</label>
-                                <input
-                                    type="text"
-                                    value={attributes.href || ''}
-                                    onChange={(e) => handlePropertyChange('href', e.target.value)}
-                                    style={{ ...inputStyle, width: '200px' }}
-                                />
-                            </div>
-                        )}
+                        <NumberInput label="X" value={attributes.x || 0} onChange={val => handlePropertyChange('x', val)} />
+                        <NumberInput label="Y" value={attributes.y || 0} onChange={val => handlePropertyChange('y', val)} />
+                        <NumberInput label="Width" value={attributes.width || 0} onChange={val => handlePropertyChange('width', val)} />
+                        <NumberInput label="Height" value={attributes.height || 0} onChange={val => handlePropertyChange('height', val)} />
                     </>
                 )}
 
-                {(type === 'ray' || type === 'xline') && (
-                    <>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>X1:</label>
-                            <input
-                                type="number"
-                                value={attributes.x1 || 0}
-                                onChange={(e) => handlePropertyChange('x1', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Y1:</label>
-                            <input
-                                type="number"
-                                value={attributes.y1 || 0}
-                                onChange={(e) => handlePropertyChange('y1', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>X2:</label>
-                            <input
-                                type="number"
-                                value={attributes.x2 || 0}
-                                onChange={(e) => handlePropertyChange('x2', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                        <div style={{ marginBottom: '10px' }}>
-                            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Y2:</label>
-                            <input
-                                type="number"
-                                value={attributes.y2 || 0}
-                                onChange={(e) => handlePropertyChange('y2', parseFloat(e.target.value))}
-                                style={{ ...inputStyle, width: '80px' }}
-                            />
-                        </div>
-                    </>
-                )}
-
-                {type === 'image' && (
-                    <div style={{ marginBottom: '10px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Image URL:</label>
-                        <input
-                            type="text"
-                            value={attributes.href || ''}
-                            onChange={(e) => handlePropertyChange('href', e.target.value)}
-                            style={{ ...inputStyle, width: '200px' }}
-                        />
-                    </div>
-                )}
-
-                {type ==='g' && (
-                    <div style={{ marginBottom: '10px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Group ID:</label>
-                        <input
-                            type="text"
-                            value={attributes.id || ''}
-                            onChange={(e) => handlePropertyChange('id', e.target.value)}
-                            style={{ ...inputStyle, width: '200px' }}
-                        />
-                    </div>
+                {type === 'g' && (
+                    <TextInput label="Group ID" value={attributes.id || ''} onChange={val => handlePropertyChange('id', val)} />
                 )}
 
                 <div style={{ marginTop: '15px', paddingTop: '15px', borderTop: '1px solid #eee' }}>

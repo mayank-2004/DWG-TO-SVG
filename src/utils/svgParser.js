@@ -9,40 +9,27 @@ export function getElementAttributes(element) {
   return attrs;
 }
 
-function applyTransformToAttributes(attrs, transform) {
-  if (!transform) return { ...attrs };
+function parseElement(element, inheritedTransform = '') {
+  const tag = element.tagName.toLowerCase();
+  const attrs = getElementAttributes(element);
+  const combinedTransform = [inheritedTransform, attrs.transform].filter(Boolean).join(' ').trim();
 
-  const translateMatch = transform.match(/translate\((-?\d+\.?\d*),\s*(-?\d+\.?\d*)\)/);
-  if (!translateMatch) return { ...attrs };
-
-  const dx = parseFloat(translateMatch[1]);
-  const dy = parseFloat(translateMatch[2]);
-  const updated = { ...attrs };
-
-  const offsetPair = (xKey, yKey) => {
-    if (xKey in updated) updated[xKey] = (parseFloat(updated[xKey]) + dx).toString();
-    if (yKey in updated) updated[yKey] = (parseFloat(updated[yKey]) + dy).toString();
+  const node = {
+    id: uuidv4(),
+    type: tag,
+    attributes: attrs,
+    transform: combinedTransform || null,
+    layer: attrs['data-layer'] || null,
+    children: []
   };
 
-  if ('x' in updated && 'y' in updated) offsetPair('x', 'y');
-  else if ('cx' in updated && 'cy' in updated) offsetPair('cx', 'cy');
-  else if ('x1' in updated && 'y1' in updated && 'x2' in updated && 'y2' in updated) {
-    updated.x1 = (parseFloat(updated.x1) + dx).toString();
-    updated.y1 = (parseFloat(updated.y1) + dy).toString();
-    updated.x2 = (parseFloat(updated.x2) + dx).toString();
-    updated.y2 = (parseFloat(updated.y2) + dy).toString();
-  } else if ('points' in updated) {
-    updated.points = updated.points.split(' ').map(pair => {
-      const [x, y] = pair.split(',').map(Number);
-      return `${x + dx},${y + dy}`;
-    }).join(' ');
-  } else if ('d' in updated) {
-    updated.d = updated.d.replace(/([ML])\s*(-?\d+\.?\d*)\s*,?\s*(-?\d+\.?\d*)/gi, (match, cmd, x, y) => {
-      return `${cmd} ${parseFloat(x) + dx},${parseFloat(y) + dy}`;
-    });
+  if (element.children && element.children.length > 0) {
+    for (const child of element.children) {
+      node.children.push(parseElement(child, combinedTransform));
+    }
   }
 
-  return updated;
+  return node;
 }
 
 export function parseSvgContent(svgString) {
@@ -50,64 +37,39 @@ export function parseSvgContent(svgString) {
   const doc = parser.parseFromString(svgString, 'image/svg+xml');
   const svg = doc.querySelector('svg');
 
+  let viewBox = '0 0 1200 1600';
   const elements = [];
-  let viewBox = '0 0 800 600';
 
   if (svg) {
     const vb = svg.getAttribute('viewBox');
     if (vb) viewBox = vb;
 
-    const groups = svg.querySelectorAll('g[data-layer]');
-
-    groups.forEach(group => {
-      const layer = group.getAttribute('data-layer') || 'default';
-      const transform = group.getAttribute('transform');
-      const children = Array.from(group.children);
-
-      children.forEach(child => {
-        const rawAttrs = getElementAttributes(child);
-        const adjustedAttrs = applyTransformToAttributes(rawAttrs, transform);
-        const type = child.tagName.toLowerCase();
-
-        elements.push({
-          id: uuidv4(),
-          type,
-          layer,
-          attributes: adjustedAttrs
-        });
-      });
-    });
+    for (const child of svg.children) {
+      elements.push(parseElement(child));
+    }
   }
-
 
   return { elements, viewBox };
 }
 
+function generateElementString(el, indent = 2) {
+  const { type, attributes, children, transform } = el;
+  const spacing = ' '.repeat(indent);
+  const attrString = Object.entries(attributes)
+    .filter(([k]) => k !== 'children')
+    .map(([k, v]) => `${k}="${v}"`).join(' ');
+
+  const transformAttr = transform ? ` transform="${transform}"` : '';
+
+  if (children && children.length > 0) {
+    const inner = children.map(c => generateElementString(c, indent + 2)).join('\n');
+    return `${spacing}<${type}${transformAttr} ${attrString}>\n${inner}\n${spacing}</${type}>`;
+  } else {
+    return `${spacing}<${type}${transformAttr} ${attrString} />`;
+  }
+}
+
 export function generateSvgString(elements, viewBox = '0 0 800 600') {
-  const grouped = {};
-
-  elements.forEach(el => {
-    const layer = el.layer || 'default';
-    if (!grouped[layer]) grouped[layer] = [];
-    grouped[layer].push(el);
-  });
-
-  const groupContent = Object.entries(grouped).map(([layer, els]) => {
-    const content = els.map(el => {
-      const { type, attributes } = el;
-      const attrString = Object.entries(attributes)
-        .map(([k, v]) => `${k}="${v}"`).join(' ');
-
-      const isText = type === 'text' && attributes.children;
-      const tag = isText
-        ? `<${type} ${attrString}>${attributes.children}</${type}>`
-        : `<${type} ${attrString} />`;
-
-      return tag;
-    }).join('\n');
-
-    return `<g data-layer="${layer}">\n${content}\n</g>`;
-  }).join('\n');
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">\n${groupContent}\n</svg>`;
+  const body = elements.map(el => generateElementString(el)).join('\n');
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">\n${body}\n</svg>`;
 }
