@@ -30,7 +30,6 @@ export default function App() {
       db.tables.BLOCK_RECORD &&
       Array.isArray(db.tables.BLOCK_RECORD.entries)
     ) {
-      // console.log("entries:",db.tables.BLOCK_RECORD.entries)
       db.blocks = db.tables.BLOCK_RECORD.entries;
     }
     lib.dwg_free(dwg);
