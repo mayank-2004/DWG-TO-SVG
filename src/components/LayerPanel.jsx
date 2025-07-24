@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 const LayerPanel = ({ elements, hiddenLayers, onLayerVisibilityChange }) => {
   const [layerCounts, setLayerCounts] = useState({});
 
-  // Recursive layer extraction
   const collectLayers = (items, counts = {}) => {
     for (const el of items) {
       const layer = el.layer || 'default';
@@ -19,7 +18,7 @@ const LayerPanel = ({ elements, hiddenLayers, onLayerVisibilityChange }) => {
 
   const toggleLayerVisibility = (layer) => {
     const currentlyHidden = hiddenLayers.has(layer);
-    onLayerVisibilityChange(layer, currentlyHidden); // callback will toggle it
+    onLayerVisibilityChange(layer, currentlyHidden); 
   };
 
   const panelStyle = {

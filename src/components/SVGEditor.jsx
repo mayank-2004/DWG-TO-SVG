@@ -19,19 +19,19 @@ const SVGEditor = ({ svgContent, onSvgChange }) => {
       setElements(parsedElements);
       setViewBox(parsedViewBox);
     }
-  }, [svgContent]);
+  }, []);
 
   const updateElementById = (items, id, updater) => {
     return items.map(item => {
       if (item.id === id) {
         return updater(item);
       }
-      if (item.children?.length) {
-        return {
-          ...item,
-          children: updateElementById(item.children, id, updater)
-        };
-      }
+      // if (item.children?.length) {
+      //   return {
+      //     ...item,
+      //     children: updateElementById(item.children, id, updater)
+      //   };
+      // }
       return item;
     });
   };
@@ -39,6 +39,7 @@ const SVGEditor = ({ svgContent, onSvgChange }) => {
   const handleElementClick = (elementId, event) => {
     event.stopPropagation();
     if (isSelecting) {
+      console.log("element id:", elementId);
       setSelectedElement(elementId);
     }
   };
@@ -207,6 +208,7 @@ const SVGEditor = ({ svgContent, onSvgChange }) => {
 
   const handleLayerVisibilityChange = (layer, isVisible) => {
     const newHiddenLayers = new Set(hiddenLayers);
+    console.log("new hidden layers:", newHiddenLayers);
     if (isVisible) newHiddenLayers.delete(layer);
     else newHiddenLayers.add(layer);
     setHiddenLayers(newHiddenLayers);
@@ -216,7 +218,9 @@ const SVGEditor = ({ svgContent, onSvgChange }) => {
 
   const exportSvg = () => {
     const svgString = generateSvgString(elements, viewBox);
+    console.log("svg sring:", svgString)
     if (onSvgChange) onSvgChange(svgString);
+    console.log("svg sring after:", svgString)
     return svgString;
   };
 
@@ -235,17 +239,28 @@ const SVGEditor = ({ svgContent, onSvgChange }) => {
       ));
   };
 
+  const findElementById = (items, id) => {
+    for (const el of items) {
+      if (el.id === id) return el;
+      // if (el.children?.length) {
+      //   const found = findElementById(el.children, id);
+      //   if (found) return found;
+      // }
+    }
+    return null;
+  };
+
   return (
     <div className="svg-editor">
       <Toolbar
-        selectedElement={selectedElement ? elements.find(el => el.id === selectedElement) : null}
+        selectedElement={selectedElement ? findElementById(elements, selectedElement) : null}
         onElementUpdate={handleElementUpdate}
         onElementDelete={() => selectedElement && handleElementDelete(selectedElement)}
         onModeChange={setIsSelecting}
         isSelecting={isSelecting}
         onExport={exportSvg}
-        onToggleLayers={() => setShowLayers(!showLayers)}
-        showLayers={showLayers}
+      // onToggleLayers={() => setShowLayers(!showLayers)}
+      // showLayers={showLayers}
       />
 
       <div style={{ display: 'flex', gap: '10px', position: 'relative' }}>
@@ -290,8 +305,8 @@ const SVGEditor = ({ svgContent, onSvgChange }) => {
             elements={elements}
             hiddenLayers={hiddenLayers}
             onLayerVisibilityChange={handleLayerVisibilityChange}
-            onElementSelect={setSelectedElement}
-            selectedElement={selectedElement}
+          // onElementSelect={setSelectedElement}
+          // selectedElement={selectedElement}
           />
         )}
       </div>

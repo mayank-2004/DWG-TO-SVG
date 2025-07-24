@@ -28,7 +28,8 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
         const deltaX = currentX - dragStart.x;
         const deltaY = currentY - dragStart.y;
 
-        onMove?.(deltaX, deltaY);
+        // onMove?.(deltaX, deltaY);
+        onMove?.(element.id, deltaX, deltaY);
         setDragStart({ x: currentX, y: currentY });
     };
 
@@ -60,28 +61,25 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
 
     const { type, attributes, transform } = element;
     const tag = (type || '').toLowerCase();
-    const className = `svg-element ${isSelected ? 'selected' : ''}`;
 
     const selectionProps = isSelected ? {
         stroke: 'red',
-        strokeWidth: 2,
+        strokeWidth: 5,
         strokeDasharray: '4 2'
     } : {};
 
     const commonProps = {
         ref: elementRef,
-        className,
         onMouseDown: handleMouseDown,
         style: { cursor: isSelecting ? 'move' : 'pointer' },
         ...selectionProps
     };
 
-    // Core SVG elements
     const baseProps = {
         ...commonProps,
         ...attributes,
         stroke: attributes.stroke || 'black',
-        strokeWidth: attributes['strokeWidth'] ?? attributes.strokeWidth ?? 1,
+        strokeWidth: attributes['strokeWidth'] ?? attributes.strokeWidth ?? 4,
         fill: attributes.fill || 'none'
     };
 
@@ -100,9 +98,10 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
             return <polyline {...baseProps} />;
         case 'path':
             return <path {...baseProps} />;
+        case 'mtext':
         case 'text':
             return (
-                <text {...baseProps} fontSize={attributes['fontSize'] || attributes.fontSize || 12}>
+                <text {...baseProps} fontSize={attributes['fontSize'] || 12}>
                     {attributes.text || attributes.textContent || element.textContent || ''}
                 </text>
             );
@@ -134,7 +133,7 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                     fillRule="evenodd"
                 />
             );
-        case 'mtext':
+            // case 'mtext':
             return (
                 <text
                     {...commonProps}

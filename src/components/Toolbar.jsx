@@ -17,7 +17,7 @@ const Toolbar = ({
                 type="number"
                 value={value}
                 onChange={e => onChange(parseFloat(e.target.value))}
-                style={{ ...inputStyle, width: '80px' }}
+                style={{ ...inputStyle, width: '80px', strokeWidth: '4px' }}
             />
         </div>
     );
@@ -29,7 +29,7 @@ const Toolbar = ({
                 type="text"
                 value={value}
                 onChange={e => onChange(e.target.value)}
-                style={{ padding: '4px 8px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px', width: '200px' }}
+                style={{ padding: '4px 8px', border: '1px solid #ccc', strokeWidth: '4px', borderRadius: '4px', fontSize: '14px', width: '200px' }}
             />
         </div>
     );
@@ -57,6 +57,7 @@ const Toolbar = ({
         border: '1px solid #ccc',
         borderRadius: '4px',
         backgroundColor: 'white',
+        color: 'black',
         cursor: 'pointer',
         fontSize: '14px'
     };
@@ -119,7 +120,7 @@ const Toolbar = ({
                 {/* Common properties */}
                 {attributes.stroke && (
                     <div style={{ marginBottom: '10px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Stroke Color:</label>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: 'black' }}>Stroke Color:</label>
                         <input
                             type="color"
                             value={rgbToHex(attributes.stroke)}
@@ -131,7 +132,7 @@ const Toolbar = ({
 
                 {attributes.strokeWidth !== undefined && (
                     <div style={{ marginBottom: '10px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Stroke Width:</label>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: 'black' }}>Stroke Width:</label>
                         <input
                             type="number"
                             value={attributes.strokeWidth}
@@ -143,7 +144,7 @@ const Toolbar = ({
 
                 {attributes.fill && (
                     <div style={{ marginBottom: '10px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Fill Color:</label>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: 'black' }}>Fill Color:</label>
                         <input
                             type="color"
                             value={rgbToHex(attributes.fill)}
@@ -178,12 +179,12 @@ const Toolbar = ({
                         <TextInput label="Text" value={attributes.text || ''} onChange={val => handlePropertyChange('text', val)} />
                         <NumberInput label="X" value={attributes.x || 0} onChange={val => handlePropertyChange('x', val)} />
                         <NumberInput label="Y" value={attributes.y || 0} onChange={val => handlePropertyChange('y', val)} />
-                        <NumberInput label="Font Size" value={attributes['font-size'] || 12} onChange={val => handlePropertyChange('font-size', val)} />
+                        <NumberInput label="Font Size" value={attributes['fontSize'] || 12} onChange={val => handlePropertyChange('fontSize', val)} />
 
                     </>
                 )}
 
-                {type === 'arc' && type === 'dimension' && type === 'leader' && type === 'mleader' && type === 'ray' && type === 'xline.'(
+                {['arc', 'dimension', 'leader', 'mleader', 'ray', 'xline'].includes(type) && (
                     <>
                         <NumberInput label="X1" value={attributes.x1 || 0} onChange={val => handlePropertyChange('x1', val)} />
                         <NumberInput label="Y1" value={attributes.y1 || 0} onChange={val => handlePropertyChange('y1', val)} />
