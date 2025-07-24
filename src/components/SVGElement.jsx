@@ -303,6 +303,12 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                     {renderChildren()}
                 </g>
             );
+        case 'defs':
+            return (
+                <defs {...commonProps}>
+                    {renderChildren()}
+                </defs>
+            );
         default:
             console.warn(`Unhandled SVG element type: ${tag}`);
             return null;
