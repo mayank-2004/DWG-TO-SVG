@@ -99,11 +99,11 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null) {
 
   const isLayerVisible = (layerName) => {
     if (shouldShowAllLayers) {
-      return true; 
+      return true;
     }
 
     if (!layerName) {
-      return true; 
+      return true;
     }
 
     const isVisible = visibleLayers.includes(layerName);
@@ -123,9 +123,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null) {
 
     const layerInfo = layers[entity.layer];
     if (layerInfo) {
-      if (layerInfo.frozen === true || (layerInfo.flags && layerInfo.flags & 4)) return false; 
-      if (layerInfo.off === true || (layerInfo.flags && layerInfo.flags & 2)) return false; 
-      if (layerInfo.flags && layerInfo.flags & 1) return false; 
+      if (layerInfo.frozen === true || (layerInfo.flags && layerInfo.flags & 4)) return false;
+      if (layerInfo.off === true || (layerInfo.flags && layerInfo.flags & 2)) return false;
+      if (layerInfo.flags && layerInfo.flags & 1) return false;
     }
 
     if (entity.invisible === true || (entity.flags && entity.flags & 1)) {
@@ -164,16 +164,16 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null) {
 
     if (entity.colorIndex !== undefined && entity.colorIndex !== 256) {
       const colorPalette = [
-        { r: 0, g: 0, b: 0 },      
-        { r: 255, g: 0, b: 0 }, 
-        { r: 255, g: 255, b: 0 }, 
-        { r: 0, g: 255, b: 0 },   
-        { r: 0, g: 255, b: 255 }, 
-        { r: 0, g: 0, b: 255 },   
-        { r: 255, g: 0, b: 255 }, 
-        { r: 0, g: 0, b: 0 },     
-        { r: 128, g: 128, b: 128 }, 
-        { r: 192, g: 192, b: 192 }  
+        { r: 0, g: 0, b: 0 },
+        { r: 255, g: 0, b: 0 },
+        { r: 255, g: 255, b: 0 },
+        { r: 0, g: 255, b: 0 },
+        { r: 0, g: 255, b: 255 },
+        { r: 0, g: 0, b: 255 },
+        { r: 255, g: 0, b: 255 },
+        { r: 0, g: 0, b: 0 },
+        { r: 128, g: 128, b: 128 },
+        { r: 192, g: 192, b: 192 }
       ];
       return colorPalette[entity.colorIndex] || { r: 0, g: 0, b: 0 };
     }
@@ -745,7 +745,7 @@ ${defs.join('\n')}
       console.warn(`Tiny bounds detected: ${width} x ${height}, expanding...`);
       const centerX = (bounds.minX + bounds.maxX) / 2;
       const centerY = (bounds.minY + bounds.maxY) / 2;
-      const minSize = Math.max(width * 10, height * 10, 1000); 
+      const minSize = Math.max(width * 10, height * 10, 1000);
 
       bounds.minX = centerX - minSize / 2;
       bounds.maxX = centerX + minSize / 2;
@@ -794,6 +794,38 @@ ${defs.join('\n')}
     }
   }
 
+  // --- Outlier filtering for bounds ---
+  const allPoints = [];
+  for (const entity of db.entities || []) {
+    if (entity.startPoint) allPoints.push([entity.startPoint.x, entity.startPoint.y]);
+    if (entity.endPoint) allPoints.push([entity.endPoint.x, entity.endPoint.y]);
+    if (entity.center) allPoints.push([entity.center.x, entity.center.y]);
+    if (entity.position) allPoints.push([entity.position.x, entity.position.y]);
+    if (entity.vertices) entity.vertices.forEach(v => allPoints.push([v.x, v.y]));
+    if (entity.corners) entity.corners.forEach(c => allPoints.push([c.x, c.y]));
+    if (entity.lowerLeft) allPoints.push([entity.lowerLeft.x, entity.lowerLeft.y]);
+    if (entity.upperRight) allPoints.push([entity.upperRight.x, entity.upperRight.y]);
+  }
+  if (allPoints.length > 10) { // Only filter if enough points
+    const mean = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const xs = allPoints.map(p => p[0]);
+    const ys = allPoints.map(p => p[1]);
+    const cx = mean(xs);
+    const cy = mean(ys);
+    const stdX = Math.sqrt(mean(xs.map(x => (x - cx) ** 2)));
+    const stdY = Math.sqrt(mean(ys.map(y => (y - cy) ** 2)));
+    const filteredPoints = allPoints.filter(([x, y]) =>
+      Math.abs(x - cx) < 3 * stdX && Math.abs(y - cy) < 3 * stdY
+    );
+    if (filteredPoints.length > 0) {
+      bounds.minX = Math.min(...filteredPoints.map(p => p[0]));
+      bounds.maxX = Math.max(...filteredPoints.map(p => p[0]));
+      bounds.minY = Math.min(...filteredPoints.map(p => p[1]));
+      bounds.maxY = Math.max(...filteredPoints.map(p => p[1]));
+      bounds.valid = true;
+    }
+  }
+
   validateAndFixBounds();
 
   if (skippedByLayer.size > 0) {
@@ -832,11 +864,11 @@ ${defs.join('\n')}
     console.log('This might indicate coordinate system issues');
   }
 
-  const padding = Math.max(width, height) * 0.1; 
+  const padding = Math.max(width, height) * 0.1;
   console.log(`Final calculated padding: ${padding}`);
 
   const viewBoxMinX = bounds.minX - padding;
-  const viewBoxMinY = -(bounds.maxY + padding); 
+  const viewBoxMinY = -(bounds.maxY + padding);
   const viewBoxWidth = width + (2 * padding);
   const viewBoxHeight = height + (2 * padding);
 
