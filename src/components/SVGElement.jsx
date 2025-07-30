@@ -303,6 +303,10 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                     {renderChildren()}
                 </g>
             );
+        case 'use':
+            return (
+                <use {...commonProps} href={`#${attributes.href}`} />
+            );
         case 'defs':
             return (
                 <defs {...commonProps}>

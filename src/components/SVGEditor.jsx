@@ -26,12 +26,12 @@ const SVGEditor = ({ svgContent, onSvgChange }) => {
       if (item.id === id) {
         return updater(item);
       }
-      // if (item.children?.length) {
-      //   return {
-      //     ...item,
-      //     children: updateElementById(item.children, id, updater)
-      //   };
-      // }
+      if (item.children?.length) {
+        return {
+          ...item,
+          children: updateElementById(item.children, id, updater)
+        };
+      }
       return item;
     });
   };

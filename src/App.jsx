@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Dwg_File_Type, LibreDwg } from '@mlightcad/libredwg-web';
 import { convertToSvg } from './utils/convert2svg';
 import SVGEditor from './components/SVGEditor';
@@ -14,8 +14,31 @@ export default function App() {
   const [visibleLayers, setVisibleLayers] = useState([]);
   const [showLayerDialog, setShowLayerDialog] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [selectedLayer, setSelectedLayer] = useState(null);
+  const [showEntitiesDialog, setShowEntitiesDialog] = useState(false);
+  const [highlightedEntity, setHighlightedEntity] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteHandle, setPendingDeleteHandle] = useState(null);
+  // const [selectedEntityForDelete, setSelectedEntityForDelete] = useState(null);
 
   const dbRef = useRef(null);
+
+  // Handler to open entity list for a layer
+  const handleViewEntities = (layerName) => {
+    setSelectedLayer(layerName);
+    setShowEntitiesDialog(true);
+  };
+
+  // Handler to delete an entity by handle
+  const handleDeleteEntity = (entityHandle) => {
+    if (!dbRef.current) return;
+    // Remove entity from db.entities
+    dbRef.current.entities = dbRef.current.entities.filter(e => e.handle !== entityHandle);
+    // Re-render SVG
+    const svgText = convertToSvg(dbRef.current, [], visibleLayers);
+    setSvg(svgText);
+    // Optionally update fileInfo/entity counts
+  };
 
   const handle = async (e) => {
     const file = e.target.files[0];
@@ -170,9 +193,46 @@ export default function App() {
     }
   };
 
-  const handleZoomIn = () => setZoom(z => Math.min(z * 1.2, 10)); 
-  const handleZoomOut = () => setZoom(z => Math.max(z / 1.2, 0.1)); 
+  useEffect(() => {
+    const savedSvg = localStorage.getItem('svgContent');
+    const savedDb = localStorage.getItem('dbData');
+    const savedLayers = localStorage.getItem('visibleLayers');
+    const savedZoom = localStorage.getItem('zoom');
+    const savedName = localStorage.getItem('fileName');
+
+    if (savedSvg && savedDb) {
+      setSvg(savedSvg);
+      dbRef.current = JSON.parse(savedDb);
+      setVisibleLayers(JSON.parse(savedLayers || '[]'));
+      setZoom(JSON.parse(savedZoom || '1'));
+      setName(savedName || 'drawing.svg');
+    }
+  }, []);
+
+  const handleZoomIn = () => setZoom(z => Math.min(z * 1.2, 10));
+  const handleZoomOut = () => setZoom(z => Math.max(z / 1.2, 0.1));
   const handleResetZoom = () => setZoom(1);
+
+  const handleDeleteLayer = (layerName) => {
+    // Remove from allLayers and visibleLayers
+    const updatedAllLayers = allLayers.filter(l => l !== layerName);
+    const updatedVisibleLayers = visibleLayers.filter(l => l !== layerName);
+    setAllLayers(updatedAllLayers);
+    setVisibleLayers(updatedVisibleLayers);
+
+    // Re-render SVG without the deleted layer
+    if (dbRef.current) {
+      const svgText = convertToSvg(dbRef.current, [], updatedVisibleLayers);
+      setSvg(svgText);
+    }
+  };
+
+  const handleDeleteAllLayers = () => {
+    setAllLayers([]);
+    setVisibleLayers([]);
+    // Clear SVG as there are no layers left
+    setSvg('');
+  };
 
   const download = () => {
     if (!svg) return;
@@ -183,12 +243,46 @@ export default function App() {
       a.href = URL.createObjectURL(blob);
       a.download = name || "drawing.svg";
       a.click();
-      URL.revokeObjectURL(a.href); 
+      URL.revokeObjectURL(a.href);
     } catch (err) {
       console.error('Error downloading SVG:', err);
       alert('Failed to download SVG file.');
     }
   };
+
+  useEffect(() => {
+    if (dbRef.current) {
+      const svgText = convertToSvg(dbRef.current, [], visibleLayers, highlightedEntity);
+      setSvg(svgText);
+    }
+  }, [visibleLayers, highlightedEntity]);
+
+  useEffect(() => {
+    if (svg && dbRef.current) {
+      localStorage.setItem('svgContent', svg);
+      localStorage.setItem('dbData', JSON.stringify(dbRef.current));
+      localStorage.setItem('visibleLayers', JSON.stringify(visibleLayers));
+      localStorage.setItem('zoom', JSON.stringify(zoom));
+      localStorage.setItem('fileName', name);
+    }
+  }, [svg, visibleLayers, zoom, name]);
+
+  // function removeEntity(handle) {
+  //   const selector = `[data-handle="${handle}"]`;
+  //   const element = document.querySelector(selector);
+  //   if (element) {
+  //     element.remove();  // or element.style.display = 'none';
+  //     console.log(`Entity with handle ${handle} removed.`);
+  //   } else {
+  //     console.warn(`Entity ${handle} not found in SVG.`);
+  //   }
+
+  //   // Remove from DWG memory
+  //   if (dbRef.current) {
+  //     dbRef.current.entities = dbRef.current.entities.filter(e => e.handle !== handle);
+  //     console.log(`Entity with handle ${handle} deleted from memory and SVG.`);
+  //   }
+  // }
 
   const handleSvgChange = (newSvg) => {
     setSvg(newSvg);
@@ -203,6 +297,11 @@ export default function App() {
     setAllLayers([]);
     setVisibleLayers([]);
     dbRef.current = null;
+    localStorage.removeItem('svgContent');
+    localStorage.removeItem('dbData');
+    localStorage.removeItem('visibleLayers');
+    localStorage.removeItem('zoom');
+    localStorage.removeItem('fileName');
 
     const fileInput = document.querySelector('input[type="file"]');
     if (fileInput) {
@@ -232,17 +331,19 @@ export default function App() {
         borderRadius: '4px',
         backgroundColor: '#f9f9f9'
       }}>
-        <div style={{ marginBottom: '10px' }}>
-          <label htmlFor="dwg-file" style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+        <div >
+          <label htmlFor="dwg-file" style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: 'black' }}>
             Select DWG File:
           </label>
+        </div>
+        <div>
           <input
             id="dwg-file"
             type="file"
             accept=".dwg"
             onChange={handle}
             disabled={isLoading}
-            style={{ marginBottom: '10px' }}
+            style={{ marginBottom: '10px', color: 'black' }}
           />
         </div>
 
@@ -359,21 +460,25 @@ export default function App() {
         {showLayerDialog && (
           <div style={{
             position: 'fixed',
-            top: 0, left: 0, right: 0, bottom: 0,
-            background: 'rgba(0,0,0,0.5)',
+            top: 0,
+            right: 0,
+            height: '100vh',
+            width: '420px',
+            background: 'white',
             zIndex: 9999,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
+            boxShadow: '-4px 0 20px rgba(0,0,0,0.15)',
+            borderLeft: '1px solid #eee',
+            overflowY: 'auto',
+            transition: 'right 0.2s'
           }}>
             <div style={{
               background: 'white',
               padding: '2rem',
               borderRadius: '8px',
-              minWidth: '400px',
-              maxHeight: '70vh',
               overflow: 'auto',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+              boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+              minWidth: '360px',
+              maxHeight: '100vh',
             }}>
               <div style={{
                 display: 'flex',
@@ -404,14 +509,17 @@ export default function App() {
                         padding: '8px',
                         backgroundColor: visibleLayers.includes(layer) ? '#e8f5e8' : '#f8f8f8',
                         borderRadius: '4px',
-                        border: '1px solid #ddd'
+                        border: '1px solid #ddd',
+                        display: 'flex',
+                        alignItems: 'center'
                       }}>
                         <label style={{
                           color: 'black',
                           display: 'flex',
                           alignItems: 'center',
                           cursor: 'pointer',
-                          fontSize: '0.9em'
+                          fontSize: '0.9em',
+                          flex: 1
                         }}>
                           <input
                             type="checkbox"
@@ -434,6 +542,38 @@ export default function App() {
                             </span>
                           )}
                         </label>
+                        <button
+                          style={{
+                            marginLeft: '12px',
+                            padding: '4px 10px',
+                            backgroundColor: '#007bff',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '0.85em'
+                          }}
+                          onClick={() => handleViewEntities(layer)}
+                          title="View entities in this layer"
+                        >
+                          View Entities
+                        </button>
+                        <button
+                          style={{
+                            marginLeft: '12px',
+                            padding: '4px 10px',
+                            backgroundColor: '#dc3545',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '0.85em'
+                          }}
+                          onClick={() => handleDeleteLayer(layer)}
+                          title="Delete this layer"
+                        >
+                          Delete
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -443,6 +583,7 @@ export default function App() {
               {/* Dialog Actions */}
               <div style={{
                 marginTop: '1rem',
+                marginLeft: '1rem',
                 paddingTop: '1rem',
                 borderTop: '1px solid #eee',
                 display: 'flex',
@@ -478,6 +619,21 @@ export default function App() {
                 <button
                   style={{
                     padding: '8px 16px',
+                    backgroundColor: '#dc3545',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                  onClick={handleDeleteAllLayers}
+                  disabled={allLayers.length === 0}
+                  title="Delete all layers"
+                >
+                  Delete All Layers
+                </button>
+                <button
+                  style={{
+                    padding: '8px 16px',
                     backgroundColor: '#007bff',
                     color: 'white',
                     border: 'none',
@@ -487,6 +643,176 @@ export default function App() {
                   onClick={closeLayerDialog}
                 >
                   Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showEntitiesDialog && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            right: 0,
+            height: '100vh',
+            width: '420px',
+            background: 'white',
+            zIndex: 10000,
+            boxShadow: '-4px 0 20px rgba(0,0,0,0.15)',
+            borderLeft: '1px solid #eee',
+            overflowY: 'auto',
+            transition: 'right 0.2s'
+          }}>
+            <div style={{
+              background: 'white',
+              padding: '2rem',
+              borderRadius: '8px',
+              minWidth: '360px',
+              maxHeight: '100vh',
+              overflow: 'auto',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '1rem',
+                borderBottom: '1px solid #eee',
+                paddingBottom: '1rem'
+              }}>
+                <h3 style={{ margin: 0, color: 'black' }}>
+                  Entities in Layer: <span style={{ color: '#007bff' }}>{selectedLayer}</span>
+                </h3>
+                <button
+                  style={{
+                    padding: '6px 14px',
+                    backgroundColor: '#6c757d',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => setShowEntitiesDialog(false)}
+                >
+                  Close
+                </button>
+              </div>
+              <div style={{ maxHeight: '300px', overflow: 'auto' }}>
+                {dbRef.current && dbRef.current.entities.filter(e => e.layer === selectedLayer).length === 0 ? (
+                  <p style={{ color: '#666', fontStyle: 'italic' }}>No entities found in this layer.</p>
+                ) : (
+                  <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                    {dbRef.current && dbRef.current.entities
+                      .filter(e => e.layer === selectedLayer)
+                      .map(e => (
+                        <li key={e.handle} style={{
+                          marginBottom: '8px',
+                          padding: '8px',
+                          backgroundColor: '#f8f8f8',
+                          borderRadius: '4px',
+                          border: '1px solid #ddd',
+                          display: 'flex',
+                          alignItems: 'center',
+                          cursor: 'pointer'
+                        }}
+                          onClick={() => {
+                            setHighlightedEntity(e.handle);
+                            setPendingDeleteHandle(e.handle);
+                            setShowDeleteConfirm(true);
+                          }}
+                        // onClick={() => setSelectedEntityForDelete(e.handle)}
+                        >
+                          <span style={{ flex: 1, color: 'black' }}>
+                            <strong>{e.type}</strong> (handle: {e.handle})
+                          </span>
+                          <button
+                            style={{
+                              marginLeft: '8px',
+                              padding: '4px 10px',
+                              backgroundColor: '#dc3545',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '0.85em'
+                            }}
+                            onClick={() => {
+                              setHighlightedEntity(e.handle);
+                              setPendingDeleteHandle(e.handle);
+                              setShowDeleteConfirm(true);
+                              // removeEntity(e.handle);
+                              // Optionally scroll SVG to entity if you have that logic
+                            }}
+                            title="Delete this entity"
+                          >
+                            Delete
+                          </button>
+                          {/* You can add an Edit button here */}
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showDeleteConfirm && (
+          <div style={{
+            position: 'fixed',
+            top: 0, left: 0, width: '100vw', height: '100vh',
+            background: 'rgba(0,0,0,0.2)',
+            zIndex: 20000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}>
+            <div style={{
+              background: 'white',
+              padding: '2rem',
+              borderRadius: '8px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+            }}>
+              <div style={{ marginBottom: '1rem', color: '#dc3545', fontWeight: 'bold' }}>
+                <strong>Are you sure you want to delete this entity?</strong>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#dc3545',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => {
+                    handleDeleteEntity(pendingDeleteHandle);
+                    setShowDeleteConfirm(false);
+                    // setSelectedEntityForDelete(null);
+                    setHighlightedEntity(null);
+                    setPendingDeleteHandle(null);
+                  }}
+                >
+                  Yes, Delete
+                </button>
+                <button
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#6c757d',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    // setSelectedEntityForDelete(null);
+                    setHighlightedEntity(null);
+                    setPendingDeleteHandle(null);
+                  }}
+                >
+                  Cancel
                 </button>
               </div>
             </div>

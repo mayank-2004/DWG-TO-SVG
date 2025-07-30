@@ -1,4 +1,4 @@
-export function convertToSvg(db, transformStack = [], visibleLayers = null) {
+export function convertToSvg(db, transformStack = [], visibleLayers = null, highlightedEntityHandle = null) {
   const tables = db.tables || {};
 
   if (!tables.BLOCK_RECORD?.entries?.length && !db.entities?.length) {
@@ -27,6 +27,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null) {
   const renderedHandles = new Set();
   const blockIdCounter = { value: 0 };
   const skippedByLayer = new Map();
+  const existingHandles = new Set((db.entities || []).map(e => e.handle));
 
   const config = {
     hideDimensions: false,
@@ -271,11 +272,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null) {
       updateBounds(cx + radius, cy + radius, 'ARC', e.handle);
 
       const largeArc = angleDiff > Math.PI ? 1 : 0;
-      const sweepFlag = endAngle > startAngle ? 1 : 0;
+      const sweepFlag = endAngle > startAngle ? 0 : 1;
 
       return `<path d="M ${round(x1)} ${round(y1)} A ${round(radius)} ${round(radius)} 0 ${largeArc} ${sweepFlag} ${round(x2)} ${round(y2)}" ${stroke} fill="none"/>`;
     },
-
     CIRCLE: (e, color, stroke, transforms) => {
       if (!e.center || !Number.isFinite(e.radius)) return null;
 
@@ -286,7 +286,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null) {
 
       return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(e.radius)}" ${stroke} fill="none"/>`;
     },
-
     ELLIPSE: (e, color, stroke, transforms) => {
       if (!e.center || !e.majorAxisEndPoint) return null;
 
@@ -509,14 +508,75 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null) {
       return `<polygon points="${points.join(' ')}" fill="none" ${stroke}/>`;
     },
 
+    // INSERT: (e, color, stroke, transforms) => {
+    //   const blockName = e.blockName || e.name;
+    //   if (!blockName) return null;
+
+    //   const blockEntities = blockDefinitions.get(blockName);
+    //   if (!blockEntities || !Array.isArray(blockEntities)) return null;
+
+    //   const insertPoint = e.insertionPoint || e.position;
+    //   if (!insertPoint || (insertPoint.x === 0 && insertPoint.y === 0)) {
+    //     console.warn(`Skipping INSERT at origin or missing insertion point: block=${blockName}, handle=${e.handle}, layer=${e.layer}`);
+    //     return null;
+    //   }
+
+    //   let xScale = e.xScale ?? e.scaleX ?? e.scale?.x ?? 1;
+    //   let yScale = e.yScale ?? e.scaleY ?? e.scale?.y ?? 1;
+    //   const rotation = e.rotation ?? e.rotationAngle ?? 0;
+
+    //   xScale = Math.max(Math.min(xScale, 1000), 0.001);
+    //   yScale = Math.max(Math.min(yScale, 1000), 0.001);
+
+    //   const newTransform = {
+    //     x: insertPoint.x,
+    //     y: insertPoint.y,
+    //     rotation: rotation,
+    //     scaleX: xScale,
+    //     scaleY: yScale
+    //   };
+
+    //   const newTransforms = [...transforms, newTransform];
+
+    //   const blockContent = [];
+    //   for (const entity of blockEntities) {
+    //     if (!entity?.type) continue;
+
+    //     const layerInfo = tables.LAYER?.entries?.reduce((acc, layer) => {
+    //       acc[layer.name] = layer;
+    //       return acc;
+    //     }, {}) || {};
+
+    //     if (!shouldRenderEntity(entity, layerInfo)) {
+    //       continue;
+    //     }
+
+    //     const element = generateElement(entity, `Block_${blockName}`, newTransforms);
+    //     if (element) {
+    //       blockContent.push(element);
+    //     }
+    //   }
+
+    //   return blockContent.length > 0 ? blockContent.join('\n') : null;
+    // }
     INSERT: (e, color, stroke, transforms) => {
       const blockName = e.blockName || e.name;
       if (!blockName) return null;
 
       const blockEntities = blockDefinitions.get(blockName);
-      if (!blockEntities || !Array.isArray(blockEntities)) return null;
+      if (!blockEntities || !blockEntities.some(be => be?.type && entityHandlers[be.type])) {
+        return null;
+      }
 
-      const insertPoint = e.insertionPoint || e.position || { x: 0, y: 0, z: 0 };
+      // Only render if insertion point is valid and not at origin
+      const insertPoint = e.insertionPoint || e.position;
+      // if (!insertPoint || (Math.abs(insertPoint.x) < 1e-6 && Math.abs(insertPoint.y) < 1e-6)) {
+      //   if (e.layer === 'I-FURN') {
+      //     console.warn(`Skipping I-FURN INSERT at (0,0): block=${blockName}, handle=${e.handle}`);
+      //     return null;
+      //   }
+      // }
+
       let xScale = e.xScale ?? e.scaleX ?? e.scale?.x ?? 1;
       let yScale = e.yScale ?? e.scaleY ?? e.scale?.y ?? 1;
       const rotation = e.rotation ?? e.rotationAngle ?? 0;
@@ -524,40 +584,22 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null) {
       xScale = Math.max(Math.min(xScale, 1000), 0.001);
       yScale = Math.max(Math.min(yScale, 1000), 0.001);
 
-      const newTransform = {
-        x: insertPoint.x,
-        y: insertPoint.y,
-        rotation: rotation,
-        scaleX: xScale,
-        scaleY: yScale
-      };
+      // Compose transform string for <use>
+      const translate = `translate(${round(insertPoint.x)},${round(insertPoint.y)})`;
+      const rotate = rotation !== 0 ? ` rotate(${round(rotation * 180 / Math.PI)})` : '';
+      const scale = (xScale !== 1 || yScale !== 1) ? ` scale(${round(xScale)},${round(yScale)})` : '';
+      const transformAttr = `${translate}${rotate}${scale}`;
 
-      const newTransforms = [...transforms, newTransform];
+      // Only reference the block definition, do not render its content directly
+      // return `<use href="#${escapeXml(blockName)}" transform="${transformAttr}" />`;
+      const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
+      const style = isHighlighted ? `stroke="red" fill="none"` : `stroke="black" fill="none"`;
 
-      const blockContent = [];
-      for (const entity of blockEntities) {
-        if (!entity?.type) continue;
-
-        const layerInfo = tables.LAYER?.entries?.reduce((acc, layer) => {
-          acc[layer.name] = layer;
-          return acc;
-        }, {}) || {};
-
-        if (!shouldRenderEntity(entity, layerInfo)) {
-          continue;
-        }
-
-        const element = generateElement(entity, `Block_${blockName}`, newTransforms);
-        if (element) {
-          blockContent.push(element);
-        }
-      }
-
-      return blockContent.length > 0 ? blockContent.join('\n') : null;
+      return `<use href="#${escapeXml(blockName)}" transform="${transformAttr}" ${style} data-handle="${e.handle}" />`;
     }
   };
 
-  const generateElement = (e, source, currentTransforms) => {
+  const generateElement = (e, source, currentTransforms, highlightedEntityHandle) => {
     if (!e?.type) {
       return null;
     }
@@ -577,6 +619,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null) {
     ) {
       if (e.type !== 'DIMENSION') {
         console.warn(`ENTITY AT ORIGIN: type=${e.type}, source=${source}, handle=${e.handle}, layer=${e.layer}`);
+        return null;
       }
     }
 
@@ -596,7 +639,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null) {
     try {
       const color = getEntityColor(e, layerInfo);
       const strokeWidth = normalizeStrokeWidth();
-      const stroke = `stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="${strokeWidth}"`;
+      const strokeColor = (highlightedEntityHandle && e.handle === highlightedEntityHandle)
+        ? `rgba(255, 0, 0, 1)`
+        : `rgb(${color.r},${color.g},${color.b})`;
+      const stroke = `stroke="${strokeColor}" stroke-width="${strokeWidth}"`;
 
       const result = handler(e, color, stroke, currentTransforms);
       if (result) processedElements++;
@@ -627,7 +673,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null) {
     if (regularEntities.length > 0) {
       const regularElements = [];
       for (const e of regularEntities) {
-        const element = generateElement(e, source, currentTransforms);
+        const element = generateElement(e, source, currentTransforms, highlightedEntityHandle);
         if (element) {
           regularElements.push(element);
         }
@@ -640,7 +686,14 @@ ${regularElements.join('\n')}
       }
     }
 
+    // for (const e of insertEntities) {
+    //   const useElement = generateInsertUseElement(e, source, currentTransforms);
+    //   if (useElement) {
+    //     content.push(useElement);
+    //   }
+    // }
     for (const e of insertEntities) {
+      if (!db.entities.some(ent => ent.handle === e.handle)) continue; // ✅ skip deleted
       const useElement = generateInsertUseElement(e, source, currentTransforms);
       if (useElement) {
         content.push(useElement);
@@ -674,7 +727,11 @@ ${regularElements.join('\n')}
       return null;
     }
 
-    const insertPoint = e.insertionPoint || e.position || { x: 0, y: 0, z: 0 };
+    const insertPoint = e.insertionPoint || e.position;
+    if (!insertPoint || Math.abs(insertPoint.x) < 1e-6 && Math.abs(insertPoint.y) < 1e-6) {
+      console.warn(`Skipping INSERT at origin or missing insertion point: block=${blockName}, handle=${e.handle}, layer=${e.layer}`);
+      return null;
+    }
 
     let xScale = e.xScale ?? e.scaleX ?? e.scale?.x ?? 1;
     let yScale = e.yScale ?? e.scaleY ?? e.scale?.y ?? 1;
@@ -709,7 +766,7 @@ ${regularElements.join('\n')}
       for (const entity of blockEntities) {
         if (!entity?.type) continue;
 
-        const element = generateElement(entity, `Block_${blockName}`, []);
+        const element = generateElement(entity, `Block_${blockName}`, [], highlightedEntityHandle);
         if (element) {
           blockContent.push(element);
         }
@@ -793,6 +850,23 @@ ${defs.join('\n')}
       Object.assign(bounds, { minX: -100, minY: -100, maxX: 100, maxY: 100, valid: true });
     }
   }
+
+  // Pre-filter mispositioned INSERTs at or near (0,0) for sensitive layers like 'I-FURN'
+  db.entities = db.entities.filter(e => {
+    if (e.type !== 'INSERT') return true;
+    const pt = e.insertionPoint || e.position;
+    if (!pt) return false;
+
+    const nearOrigin = Math.abs(pt.x) < 1e-6 && Math.abs(pt.y) < 1e-6;
+    const isClutterLayer = e.layer === 'I-FURN';
+
+    if (nearOrigin && isClutterLayer) {
+      console.warn(`Skipping INSERT at origin on I-FURN: block=${e.blockName}, handle=${e.handle}`);
+      return false;
+    }
+
+    return true;
+  });
 
   // --- Outlier filtering for bounds ---
   const allPoints = [];
