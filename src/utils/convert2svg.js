@@ -508,57 +508,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       return `<polygon points="${points.join(' ')}" fill="none" ${stroke}/>`;
     },
 
-    // INSERT: (e, color, stroke, transforms) => {
-    //   const blockName = e.blockName || e.name;
-    //   if (!blockName) return null;
-
-    //   const blockEntities = blockDefinitions.get(blockName);
-    //   if (!blockEntities || !Array.isArray(blockEntities)) return null;
-
-    //   const insertPoint = e.insertionPoint || e.position;
-    //   if (!insertPoint || (insertPoint.x === 0 && insertPoint.y === 0)) {
-    //     console.warn(`Skipping INSERT at origin or missing insertion point: block=${blockName}, handle=${e.handle}, layer=${e.layer}`);
-    //     return null;
-    //   }
-
-    //   let xScale = e.xScale ?? e.scaleX ?? e.scale?.x ?? 1;
-    //   let yScale = e.yScale ?? e.scaleY ?? e.scale?.y ?? 1;
-    //   const rotation = e.rotation ?? e.rotationAngle ?? 0;
-
-    //   xScale = Math.max(Math.min(xScale, 1000), 0.001);
-    //   yScale = Math.max(Math.min(yScale, 1000), 0.001);
-
-    //   const newTransform = {
-    //     x: insertPoint.x,
-    //     y: insertPoint.y,
-    //     rotation: rotation,
-    //     scaleX: xScale,
-    //     scaleY: yScale
-    //   };
-
-    //   const newTransforms = [...transforms, newTransform];
-
-    //   const blockContent = [];
-    //   for (const entity of blockEntities) {
-    //     if (!entity?.type) continue;
-
-    //     const layerInfo = tables.LAYER?.entries?.reduce((acc, layer) => {
-    //       acc[layer.name] = layer;
-    //       return acc;
-    //     }, {}) || {};
-
-    //     if (!shouldRenderEntity(entity, layerInfo)) {
-    //       continue;
-    //     }
-
-    //     const element = generateElement(entity, `Block_${blockName}`, newTransforms);
-    //     if (element) {
-    //       blockContent.push(element);
-    //     }
-    //   }
-
-    //   return blockContent.length > 0 ? blockContent.join('\n') : null;
-    // }
     INSERT: (e, color, stroke, transforms) => {
       const blockName = e.blockName || e.name;
       if (!blockName) return null;
@@ -568,15 +517,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return null;
       }
 
-      // Only render if insertion point is valid and not at origin
       const insertPoint = e.insertionPoint || e.position;
-      // if (!insertPoint || (Math.abs(insertPoint.x) < 1e-6 && Math.abs(insertPoint.y) < 1e-6)) {
-      //   if (e.layer === 'I-FURN') {
-      //     console.warn(`Skipping I-FURN INSERT at (0,0): block=${blockName}, handle=${e.handle}`);
-      //     return null;
-      //   }
-      // }
-
       let xScale = e.xScale ?? e.scaleX ?? e.scale?.x ?? 1;
       let yScale = e.yScale ?? e.scaleY ?? e.scale?.y ?? 1;
       const rotation = e.rotation ?? e.rotationAngle ?? 0;
@@ -584,19 +525,24 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       xScale = Math.max(Math.min(xScale, 1000), 0.001);
       yScale = Math.max(Math.min(yScale, 1000), 0.001);
 
-      // Compose transform string for <use>
       const translate = `translate(${round(insertPoint.x)},${round(insertPoint.y)})`;
       const rotate = rotation !== 0 ? ` rotate(${round(rotation * 180 / Math.PI)})` : '';
       const scale = (xScale !== 1 || yScale !== 1) ? ` scale(${round(xScale)},${round(yScale)})` : '';
       const transformAttr = `${translate}${rotate}${scale}`;
 
-      // Only reference the block definition, do not render its content directly
-      // return `<use href="#${escapeXml(blockName)}" transform="${transformAttr}" />`;
       const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
-      const style = isHighlighted ? `stroke="red" fill="none"` : `stroke="black" fill="none"`;
+      const highlightStyle = isHighlighted ? `stroke="red" stroke-width="3" fill="rgba(255,0,0,0.1)"` : `stroke="black" fill="none"`;
 
-      return `<use href="#${escapeXml(blockName)}" transform="${transformAttr}" ${style} data-handle="${e.handle}" />`;
-    }
+      // Add data attributes for identification and deletion
+      const dataHandle = e.handle ? `data-handle="${e.handle}"` : '';
+      const dataLayer = e.layer ? `data-layer="${e.layer}"` : '';
+      const dataType = `data-type="INSERT"`;
+      const dataBlock = `data-block="${blockName}"`;
+      const entityClass = `class="dwg-entity deletable-entity insert-block"`;
+      const hoverStyle = `style="cursor: pointer; transition: all 0.2s;"`;
+
+      return `<use href="#${escapeXml(blockName)}" transform="${transformAttr}" ${highlightStyle} ${dataHandle} ${dataLayer} ${dataType} ${dataBlock} ${entityClass} ${hoverStyle} />`;
+    },
   };
 
   const generateElement = (e, source, currentTransforms, highlightedEntityHandle) => {
@@ -639,12 +585,54 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     try {
       const color = getEntityColor(e, layerInfo);
       const strokeWidth = normalizeStrokeWidth();
-      const strokeColor = (highlightedEntityHandle && e.handle === highlightedEntityHandle)
-        ? `rgba(255, 0, 0, 1)`
-        : `rgb(${color.r},${color.g},${color.b})`;
-      const stroke = `stroke="${strokeColor}" stroke-width="${strokeWidth}"`;
+
+      const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
+
+      let strokeColor, strokeWidth_final, fillColor, strokeDashArray, strokeOpacity;
+
+      if (isHighlighted) {
+        strokeColor = '#FF0000';
+        strokeWidth_final = '4'; 
+        fillColor = 'rgba(255, 0, 0, 0.3)'; 
+        strokeDashArray = '8,4';
+        strokeOpacity = '1';
+      } else {
+        strokeColor = `rgb(${color.r},${color.g},${color.b})`;
+        strokeWidth_final = strokeWidth;
+        fillColor = 'none';
+        strokeDashArray = 'none';
+        strokeOpacity = '0.8';
+      }
+      const stroke = `stroke="${strokeColor}" stroke-width="${strokeWidth_final}" fill="${fillColor}" stroke-dasharray="${strokeDashArray}" stroke-opacity="${strokeOpacity}"`;
 
       const result = handler(e, color, stroke, currentTransforms);
+      if (result && e.handle) {
+        const dataHandle = `data-handle="${e.handle}"`;
+        const dataLayer = e.layer ? `data-layer="${e.layer}"` : '';
+        const dataType = `data-type="${e.type}"`;
+        const highlightClass = isHighlighted ? 'highlighted-entity' : 'dwg-entity';
+        const entityClass = `class="${highlightClass} deletable-entity"`;
+
+        if (result.startsWith('<g ') || result.startsWith('<g>')) {
+          const insertPos = result.indexOf('>');
+          const updatedResult = result.slice(0, insertPos) +
+            ` ${dataHandle} ${dataLayer} ${dataType} ${entityClass}` +
+            result.slice(insertPos);
+          if (updatedResult) processedElements++;
+          return updatedResult;
+        } else {
+          const tagMatch = result.match(/^<(\w+)/);
+          if (tagMatch) {
+            const insertPos = result.indexOf(' ') > 0 ? result.indexOf(' ') : result.indexOf('>');
+            const updatedResult = result.slice(0, insertPos) +
+              ` ${dataHandle} ${dataLayer} ${dataType} ${entityClass}` +
+              result.slice(insertPos);
+            if (updatedResult) processedElements++;
+            return updatedResult;
+          }
+        }
+      }
+
       if (result) processedElements++;
       return result;
     } catch (err) {
@@ -680,18 +668,12 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       }
 
       if (regularElements.length > 0) {
-        content.push(`<g id="${escapeXml(source)}">
+        content.push(`<g id="${escapeXml(source)}" class="entity-group">
 ${regularElements.join('\n')}
 </g>`);
       }
     }
 
-    // for (const e of insertEntities) {
-    //   const useElement = generateInsertUseElement(e, source, currentTransforms);
-    //   if (useElement) {
-    //     content.push(useElement);
-    //   }
-    // }
     for (const e of insertEntities) {
       if (!db.entities.some(ent => ent.handle === e.handle)) continue; // ✅ skip deleted
       const useElement = generateInsertUseElement(e, source, currentTransforms);
@@ -851,7 +833,6 @@ ${defs.join('\n')}
     }
   }
 
-  // Pre-filter mispositioned INSERTs at or near (0,0) for sensitive layers like 'I-FURN'
   db.entities = db.entities.filter(e => {
     if (e.type !== 'INSERT') return true;
     const pt = e.insertionPoint || e.position;
@@ -938,6 +919,27 @@ ${defs.join('\n')}
     console.log('This might indicate coordinate system issues');
   }
 
+  const svgStyles = `
+<style>
+  .dwg-entity:hover {
+    opacity: 0.7 !important;
+    stroke-width: 2 !important;
+  }
+  .deletable-entity {
+    cursor: pointer;
+  }
+  .insert-block:hover {
+    stroke: #ff6b6b !important;
+    stroke-width: 2 !important;
+  }
+  .highlighted-entity {
+    stroke: red !important;
+    stroke-width: 3 !important;
+    fill: rgba(255, 0, 0, 0.1) !important;
+  }
+</style>
+`;
+
   const padding = Math.max(width, height) * 0.1;
   console.log(`Final calculated padding: ${padding}`);
 
@@ -952,6 +954,7 @@ ${defs.join('\n')}
   console.log(`FINAL SVG dimensions: ${round(viewBoxWidth)} x ${round(viewBoxHeight)}`);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" style="stroke-linecap:round;stroke-linejoin:round;background:white;width:100%;height:100%">
+   ${svgStyles}
   ${blockDefs}
   <g transform="scale(1,-1)">
     ${svgContent}
