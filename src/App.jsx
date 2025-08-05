@@ -122,42 +122,6 @@ export default function App() {
     return removed;
   };
 
-  const debugDatabaseStructure = () => {
-    if (!dbRef.current) {
-      console.log('No database loaded');
-      return;
-    }
-
-    console.log('=== DATABASE STRUCTURE DEBUG ===');
-    console.log('Main entities:', dbRef.current.entities?.length || 0);
-
-    if (dbRef.current.entities && dbRef.current.entities.length > 0) {
-      console.log('First 10 main entity handles:',
-        dbRef.current.entities.slice(0, 10).map(e => ({ handle: e.handle, type: e.type }))
-      );
-    }
-
-    console.log('Tables:', Object.keys(dbRef.current.tables || {}));
-
-    if (dbRef.current.tables?.BLOCK_RECORD?.entries) {
-      console.log('Blocks found:', dbRef.current.tables.BLOCK_RECORD.entries.length);
-      dbRef.current.tables.BLOCK_RECORD.entries.forEach((block, idx) => {
-        if (block.entities && block.entities.length > 0 && idx < 5) {
-          console.log(`Block "${block.name}":`,
-            block.entities.slice(0, 5).map(e => ({ handle: e.handle, type: e.type }))
-          );
-        }
-      });
-    }
-
-    // Check what handles are actually in the SVG
-    const svgContainer = svgContainerRef.current;
-    if (svgContainer) {
-      const clickableEntities = svgContainer.querySelectorAll('[data-handle]');
-      console.log('SVG handles found:', Array.from(clickableEntities).slice(0, 10).map(el => el.getAttribute('data-handle')));
-    }
-  };
-
   const handleViewEntities = (layerName) => {
     setSelectedLayer(layerName);
     setShowEntitiesDialog(true);
@@ -377,38 +341,6 @@ export default function App() {
       setHighlightedEntity(entityHandle);
       setShowDeleteConfirm(true);
     }
-  };
-
-  // function to debug SVG elements
-  const debugSvgElements = () => {
-    const svgContainer = svgContainerRef.current;
-    if (svgContainer) {
-      console.log('=== SVG CONTAINER DEBUG ===');
-      console.log('Container element:', svgContainer);
-
-      // Find the actual SVG element
-      const svgElement = svgContainer.querySelector('svg');
-      console.log('SVG element:', svgElement);
-
-      // Find all clickable entities
-      const clickableEntities = svgContainer.querySelectorAll('[data-handle]');
-      console.log('Clickable entities found:', clickableEntities.length);
-
-      clickableEntities.forEach((entity, index) => {
-        console.log(`Entity ${index}:`, {
-          tagName: entity.tagName,
-          handle: entity.getAttribute('data-handle'),
-          type: entity.getAttribute('data-type'),
-          layer: entity.getAttribute('data-layer')
-        });
-      });
-
-      return {
-        svgElement,
-        clickableEntities: Array.from(clickableEntities)
-      };
-    }
-    return null;
   };
 
   const handleCloseInlineDelete = () => {
@@ -1015,11 +947,11 @@ export default function App() {
             {fileInfo.blocks.length > 0 && (
               <details style={{ marginTop: '10px' }}>
                 <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: 'black' }}>Block Details</summary>
-                <ul style={{ margin: '5px 0', paddingLeft: '20px' }}>
+                <ul style={{ margin: '5px 0', paddingLeft: '20px', color: 'black' }}>
                   {fileInfo.blocks.map((block, idx) => (
                     <li key={idx}>
                       {block.name}: {block.entityCount} entities
-                      {block.hasBasePoint && ' (has base point)'}
+                      {block.hasBasePoint}
                     </li>
                   ))}
                 </ul>
@@ -1069,36 +1001,6 @@ export default function App() {
                 disabled={visibleLayers.length === 0}
               >
                 Hide All Layers
-              </button>
-
-              <button
-                onClick={debugSvgElements}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#ffc107',
-                  color: 'black',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  marginRight: '10px'
-                }}
-              >
-                Debug SVG Elements
-              </button>
-
-              <button
-                onClick={debugDatabaseStructure}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#17a2b8',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  marginRight: '10px'
-                }}
-              >
-                Debug Database Structure
               </button>
             </div>
           </div>
