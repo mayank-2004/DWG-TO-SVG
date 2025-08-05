@@ -518,6 +518,272 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       return `<polygon points="${points.join(' ')}" ${stroke}/>`;
     },
 
+    LEADER: (e, color, stroke, transforms) => {
+      // Leaders need at least 2 vertices to form a line
+      if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
+
+      const items = [];
+
+      // Draw the leader line(s) connecting all vertices
+      for (let i = 0; i < e.vertices.length - 1; i++) {
+        const start = e.vertices[i];
+        const end = e.vertices[i + 1];
+
+        if (!start || !end) continue;
+
+        const [x1, y1] = applyTransform(start.x, start.y, transforms);
+        const [x2, y2] = applyTransform(end.x, end.y, transforms);
+
+        updateBounds(x1, y1, 'LEADER', e.handle);
+        updateBounds(x2, y2, 'LEADER', e.handle);
+
+        items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke}/>`);
+      }
+
+      // Add arrowhead at the first vertex (start of leader)
+      if (e.hasArrowhead !== false && e.vertices.length >= 2) {
+        const start = e.vertices[0];
+        const second = e.vertices[1];
+
+        if (start && second) {
+          const [x1, y1] = applyTransform(start.x, start.y, transforms);
+          const [x2, y2] = applyTransform(second.x, second.y, transforms);
+
+          // Calculate arrow direction
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          const length = Math.sqrt(dx * dx + dy * dy);
+
+          if (length > 0) {
+            const unitX = dx / length;
+            const unitY = dy / length;
+
+            // Arrow size (adjust as needed)
+            const arrowSize = 8;
+
+            // Calculate arrowhead points
+            const arrowX1 = x1 + arrowSize * (-unitX + unitY * 0.5);
+            const arrowY1 = y1 + arrowSize * (-unitY - unitX * 0.5);
+            const arrowX2 = x1 + arrowSize * (-unitX - unitY * 0.5);
+            const arrowY2 = y1 + arrowSize * (-unitY + unitX * 0.5);
+
+            // Create arrowhead as a filled triangle
+            const arrowStroke = stroke.replace(/fill="[^"]*"/, `fill="rgb(${color.r},${color.g},${color.b})"`);
+            const arrowPoints = `${round(x1)},${round(y1)} ${round(arrowX1)},${round(arrowY1)} ${round(arrowX2)},${round(arrowY2)}`;
+            items.push(`<polygon points="${arrowPoints}" ${arrowStroke}/>`);
+          }
+        }
+      }
+
+      // Add text annotation if present
+      if (!config.hideText && e.text && (e.textPosition || e.annotationOffset)) {
+        const textPos = e.textPosition || e.annotationOffset;
+        if (textPos) {
+          const [tx, ty] = applyTransform(textPos.x, textPos.y, transforms);
+          updateBounds(tx, ty, 'LEADER', e.handle);
+
+          const fontSize = Math.max((e.textHeight || 8) * config.textSizeMultiplier, 6);
+          const rotation = e.textRotation ? ` transform="rotate(${e.textRotation * 180 / Math.PI} ${round(tx)} ${round(ty)}) scale(1,-1)"` : ' transform="scale(1,-1)"';
+
+          items.push(`<text x="${round(tx)}" y="${round(ty)}" font-size="${fontSize}" fill="rgb(${color.r},${color.g},${color.b})"${rotation}>${escapeXml(e.text)}</text>`);
+        }
+      }
+
+      // Fallback: if no vertices but has startPoint and endPoint
+      if (items.length === 0 && e.startPoint && e.endPoint) {
+        const [x1, y1] = applyTransform(e.startPoint.x, e.startPoint.y, transforms);
+        const [x2, y2] = applyTransform(e.endPoint.x, e.endPoint.y, transforms);
+
+        updateBounds(x1, y1, 'LEADER', e.handle);
+        updateBounds(x2, y2, 'LEADER', e.handle);
+
+        items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke}/>`);
+      }
+
+      return items.length > 0 ? items.join('') : null;
+    },
+
+    MLINE: (e, color, stroke, transforms) => {
+      if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
+
+      const items = [];
+      const numLines = e.numberOfLines || e.elements?.length || 2;
+      const spacing = e.lineSpacing || 10; // Default spacing between parallel lines
+
+      // Calculate perpendicular direction for offset lines
+      for (let i = 0; i < e.vertices.length - 1; i++) {
+        const start = e.vertices[i];
+        const end = e.vertices[i + 1];
+
+        if (!start || !end) continue;
+
+        // Calculate direction vector
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+
+        if (length === 0) continue;
+
+        // Unit perpendicular vector
+        const perpX = -dy / length;
+        const perpY = dx / length;
+
+        // Draw multiple parallel lines
+        for (let lineIndex = 0; lineIndex < numLines; lineIndex++) {
+          // Calculate offset from center line
+          const offset = (lineIndex - (numLines - 1) / 2) * spacing;
+
+          // Calculate offset points
+          const startX = start.x + perpX * offset;
+          const startY = start.y + perpY * offset;
+          const endX = end.x + perpX * offset;
+          const endY = end.y + perpY * offset;
+
+          const [x1, y1] = applyTransform(startX, startY, transforms);
+          const [x2, y2] = applyTransform(endX, endY, transforms);
+
+          updateBounds(x1, y1, 'MLINE', e.handle);
+          updateBounds(x2, y2, 'MLINE', e.handle);
+
+          // Use different stroke styles for different lines if needed
+          let lineStroke = stroke;
+          if (lineIndex === 0 || lineIndex === numLines - 1) {
+            // Outer lines - solid
+            lineStroke = stroke;
+          } else {
+            // Inner lines - potentially dashed
+            lineStroke = stroke + ' stroke-dasharray="3,3"';
+          }
+
+          items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${lineStroke}/>`);
+        }
+      }
+
+      // Add end caps if specified
+      if (e.startCap || e.endCap) {
+        const firstVertex = e.vertices[0];
+        const lastVertex = e.vertices[e.vertices.length - 1];
+
+        if (firstVertex && e.startCap && e.vertices.length > 1) {
+          const secondVertex = e.vertices[1];
+          const dx = secondVertex.x - firstVertex.x;
+          const dy = secondVertex.y - firstVertex.y;
+          const length = Math.sqrt(dx * dx + dy * dy);
+
+          if (length > 0) {
+            const perpX = -dy / length;
+            const perpY = dx / length;
+            const halfWidth = (numLines - 1) * spacing / 2;
+
+            const capStart = {
+              x: firstVertex.x + perpX * halfWidth,
+              y: firstVertex.y + perpY * halfWidth
+            };
+            const capEnd = {
+              x: firstVertex.x - perpX * halfWidth,
+              y: firstVertex.y - perpY * halfWidth
+            };
+
+            const [cx1, cy1] = applyTransform(capStart.x, capStart.y, transforms);
+            const [cx2, cy2] = applyTransform(capEnd.x, capEnd.y, transforms);
+
+            items.push(`<line x1="${round(cx1)}" y1="${round(cy1)}" x2="${round(cx2)}" y2="${round(cy2)}" ${stroke}/>`);
+          }
+        }
+
+        if (lastVertex && e.endCap && e.vertices.length > 1) {
+          const secondLastVertex = e.vertices[e.vertices.length - 2];
+          const dx = lastVertex.x - secondLastVertex.x;
+          const dy = lastVertex.y - secondLastVertex.y;
+          const length = Math.sqrt(dx * dx + dy * dy);
+
+          if (length > 0) {
+            const perpX = -dy / length;
+            const perpY = dx / length;
+            const halfWidth = (numLines - 1) * spacing / 2;
+
+            const capStart = {
+              x: lastVertex.x + perpX * halfWidth,
+              y: lastVertex.y + perpY * halfWidth
+            };
+            const capEnd = {
+              x: lastVertex.x - perpX * halfWidth,
+              y: lastVertex.y - perpY * halfWidth
+            };
+
+            const [cx1, cy1] = applyTransform(capStart.x, capStart.y, transforms);
+            const [cx2, cy2] = applyTransform(capEnd.x, capEnd.y, transforms);
+
+            items.push(`<line x1="${round(cx1)}" y1="${round(cy1)}" x2="${round(cx2)}" y2="${round(cy2)}" ${stroke}/>`);
+          }
+        }
+      }
+
+      return items.length > 0 ? items.join('') : null;
+    },
+
+    ATTDEF: (e, color, stroke, transforms) => {
+      if (config.hideText) return null;
+
+      const items = [];
+      const insertPoint = e.insertionPoint || e.position || e.startPoint;
+
+      if (!insertPoint) return null;
+
+      const [x, y] = applyTransform(insertPoint.x, insertPoint.y, transforms);
+      updateBounds(x, y, 'ATTDEF', e.handle);
+
+      // Display text (tag, prompt, or default value)
+      const displayText = e.defaultValue || e.tag || e.prompt || 'ATTDEF';
+      const fontSize = Math.max((e.height || 10) * config.textSizeMultiplier, 8);
+
+      // Handle text rotation
+      const rotation = e.rotation || e.rotationAngle || 0;
+      const rotationTransform = rotation !== 0 ?
+        ` transform="rotate(${round(rotation * 180 / Math.PI)} ${round(x)} ${round(y)}) scale(1,-1)"` :
+        ' transform="scale(1,-1)"';
+
+      // Handle text alignment
+      let textAnchor = 'start';
+      if (e.horizontalAlignment === 1) textAnchor = 'middle';
+      else if (e.horizontalAlignment === 2) textAnchor = 'end';
+
+      // Main attribute text
+      items.push(`<text x="${round(x)}" y="${round(y)}" font-size="${fontSize}" fill="rgb(${color.r},${color.g},${color.b})" text-anchor="${textAnchor}"${rotationTransform}>${escapeXml(displayText)}</text>`);
+
+      // Add attribute tag label if different from display text
+      if (e.tag && e.tag !== displayText) {
+        const tagY = y - fontSize - 2;
+        items.push(`<text x="${round(x)}" y="${round(tagY)}" font-size="${Math.max(fontSize * 0.7, 6)}" fill="rgb(${Math.max(color.r - 50, 0)},${Math.max(color.g - 50, 0)},${Math.max(color.b - 50, 0)})" text-anchor="${textAnchor}" transform="scale(1,-1)">${escapeXml(e.tag)}</text>`);
+        updateBounds(x, tagY, 'ATTDEF', e.handle);
+      }
+
+      // Add visual indicator for invisible attributes
+      if (e.invisible || e.flags & 1) {
+        const indicatorSize = fontSize * 0.3;
+        items.push(`<rect x="${round(x - indicatorSize)}" y="${round(y - indicatorSize)}" width="${round(indicatorSize * 2)}" height="${round(indicatorSize * 2)}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="0.5" stroke-dasharray="2,2"/>`);
+      }
+
+      // Add boundary box for preset attributes
+      if (e.preset || e.flags & 8) {
+        const textWidth = displayText.length * fontSize * 0.6; // Approximate text width
+        const textHeight = fontSize;
+        const padding = 2;
+
+        items.push(`<rect x="${round(x - padding)}" y="${round(y - textHeight - padding)}" width="${round(textWidth + padding * 2)}" height="${round(textHeight + padding * 2)}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="0.5"/>`);
+        updateBounds(x + textWidth + padding, y + padding, 'ATTDEF', e.handle);
+      }
+
+      // Add verification indicator for verify attributes
+      if (e.verify || e.flags & 4) {
+        const indicatorX = x + displayText.length * fontSize * 0.6 + 5;
+        items.push(`<text x="${round(indicatorX)}" y="${round(y)}" font-size="${Math.max(fontSize * 0.8, 6)}" fill="orange" transform="scale(1,-1)">✓</text>`);
+        updateBounds(indicatorX + 10, y, 'ATTDEF', e.handle);
+      }
+
+      return items.length > 0 ? items.join('') : null;
+    },
+
     INSERT: (e, color, stroke, transforms) => {
       const blockName = e.blockName || e.name;
       if (!blockName) return null;
