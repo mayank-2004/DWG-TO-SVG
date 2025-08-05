@@ -706,15 +706,15 @@ export default function App() {
     return allEntities;
   };
 
-  // useEffect(() => {
-  //   if (svg && dbRef.current) {
-  //     localStorage.setItem('svgContent', svg);
-  //     localStorage.setItem('dbData', JSON.stringify(dbRef.current));
-  //     localStorage.setItem('visibleLayers', JSON.stringify(visibleLayers));
-  //     localStorage.setItem('zoom', JSON.stringify(zoom));
-  //     localStorage.setItem('fileName', name);
-  //   }
-  // }, [svg, visibleLayers, zoom, name]);
+  useEffect(() => {
+    if (svg && dbRef.current) {
+      localStorage.setItem('svgContent', svg);
+      localStorage.setItem('dbData', JSON.stringify(dbRef.current));
+      localStorage.setItem('visibleLayers', JSON.stringify(visibleLayers));
+      localStorage.setItem('zoom', JSON.stringify(zoom));
+      localStorage.setItem('fileName', name);
+    }
+  }, [svg, visibleLayers, zoom, name]);
 
   useEffect(() => {
     const attachListeners = () => {
@@ -790,21 +790,21 @@ export default function App() {
     }
   }, [svg]);
 
-  // useEffect(() => {
-  //   const savedSvg = localStorage.getItem('svgContent');
-  //   const savedDb = localStorage.getItem('dbData');
-  //   const savedLayers = localStorage.getItem('visibleLayers');
-  //   const savedZoom = localStorage.getItem('zoom');
-  //   const savedName = localStorage.getItem('fileName');
+  useEffect(() => {
+    const savedSvg = localStorage.getItem('svgContent');
+    const savedDb = localStorage.getItem('dbData');
+    const savedLayers = localStorage.getItem('visibleLayers');
+    const savedZoom = localStorage.getItem('zoom');
+    const savedName = localStorage.getItem('fileName');
 
-  //   if (savedSvg && savedDb) {
-  //     setSvg(savedSvg);
-  //     dbRef.current = JSON.parse(savedDb);
-  //     setVisibleLayers(JSON.parse(savedLayers || '[]'));
-  //     setZoom(JSON.parse(savedZoom || '1'));
-  //     setName(savedName || 'drawing.svg');
-  //   }
-  // }, []);
+    if (savedSvg && savedDb) {
+      setSvg(savedSvg);
+      dbRef.current = JSON.parse(savedDb);
+      setVisibleLayers(JSON.parse(savedLayers || '[]'));
+      setZoom(JSON.parse(savedZoom || '1'));
+      setName(savedName || 'drawing.svg');
+    }
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -848,11 +848,11 @@ export default function App() {
     setAllLayers([]);
     setVisibleLayers([]);
     dbRef.current = null;
-    // localStorage.removeItem('svgContent');
-    // localStorage.removeItem('dbData');
-    // localStorage.removeItem('visibleLayers');
-    // localStorage.removeItem('zoom');
-    // localStorage.removeItem('fileName');
+    localStorage.removeItem('svgContent');
+    localStorage.removeItem('dbData');
+    localStorage.removeItem('visibleLayers');
+    localStorage.removeItem('zoom');
+    localStorage.removeItem('fileName');
 
     const fileInput = document.querySelector('input[type="file"]');
     if (fileInput) {
