@@ -21,113 +21,146 @@ export default function App() {
   const [pendingDeleteHandle, setPendingDeleteHandle] = useState(null);
   const [selectedEntityInfo, setSelectedEntityInfo] = useState(null);
   const [hoveredEntity, setHoveredEntity] = useState(null);
+  const [showInlineDeleteDialog, setShowInlineDeleteDialog] = useState(false);
+  const [inlineDeletePosition, setInlineDeletePosition] = useState({ x: 0, y: 0 });
+  const [inlineDeleteEntity, setInlineDeleteEntity] = useState(null);
 
   const dbRef = useRef(null);
+  const svgContainerRef = useRef(null);
+
+  // Helper function to find entity by handle in all locations
+  const findEntityByHandle = (handle, db) => {
+    if (!db || !handle) {
+      console.log('findEntityByHandle: Missing db or handle');
+      return null;
+    }
+
+    // Convert handle to both string and number for comparison
+    const handleStr = String(handle);
+    const handleNum = parseInt(handle);
+
+    console.log(`Searching for handle ${handle} (string: "${handleStr}", number: ${handleNum}) in database`);
+
+    // First check main entities
+    if (db.entities && Array.isArray(db.entities)) {
+      console.log(`Searching in ${db.entities.length} main entities`);
+      const entity = db.entities.find(e => e.handle === handleNum || e.handle === handleStr || String(e.handle) === handleStr);
+      if (entity) {
+        console.log(`Found entity in main entities:`, entity.type, 'handle:', entity.handle);
+        return { entity, location: 'main', blockName: null };
+      }
+    }
+
+    // Check in block definitions
+    if (db.tables?.BLOCK_RECORD?.entries) {
+      console.log(`Searching in ${db.tables.BLOCK_RECORD.entries.length} blocks`);
+      for (const block of db.tables.BLOCK_RECORD.entries) {
+        if (block.entities && Array.isArray(block.entities)) {
+          console.log(`Searching in block "${block.name}" with ${block.entities.length} entities`);
+          const entity = block.entities.find(e => e.handle === handleNum || e.handle === handleStr || String(e.handle) === handleStr);
+          if (entity) {
+            console.log(`Found entity in block "${block.name}":`, entity.type, 'handle:', entity.handle);
+            return { entity, location: 'block', blockName: block.name };
+          }
+        }
+      }
+    }
+
+    // Additional search in header/tables if entities might be there
+    if (db.tables) {
+      console.log('Checking other tables...');
+      for (const [tableName, table] of Object.entries(db.tables)) {
+        if (table.entries && Array.isArray(table.entries)) {
+          for (const entry of table.entries) {
+            if (entry.handle === handleNum || entry.handle === handleStr || String(entry.handle) === handleStr) {
+              console.log(`Found entity in table "${tableName}"`);
+              return { entity: entry, location: 'table', blockName: tableName };
+            }
+          }
+        }
+      }
+    }
+
+    console.log(`Entity with handle ${handle} not found anywhere`);
+    return null;
+  };
+
+  // Helper function to remove entity by handle from all locations
+  const removeEntityByHandle = (handle, db) => {
+    if (!db || !handle) return false;
+
+    // Convert handle to both string and number for comparison
+    const handleStr = String(handle);
+    const handleNum = parseInt(handle);
+
+    let removed = false;
+
+    // Remove from main entities
+    if (db.entities && Array.isArray(db.entities)) {
+      const initialLength = db.entities.length;
+      db.entities = db.entities.filter(e => e.handle !== handleNum && e.handle !== handleStr && String(e.handle) !== handleStr);
+      if (db.entities.length < initialLength) {
+        removed = true;
+        console.log('Entity removed from main entities');
+      }
+    }
+
+    // Remove from block definitions
+    if (db.tables?.BLOCK_RECORD?.entries) {
+      for (const block of db.tables.BLOCK_RECORD.entries) {
+        if (block.entities && Array.isArray(block.entities)) {
+          const initialLength = block.entities.length;
+          block.entities = block.entities.filter(e => e.handle !== handleNum && e.handle !== handleStr && String(e.handle) !== handleStr);
+          if (block.entities.length < initialLength) {
+            removed = true;
+            console.log(`Entity removed from block: ${block.name}`);
+          }
+        }
+      }
+    }
+
+    return removed;
+  };
+
+  const debugDatabaseStructure = () => {
+    if (!dbRef.current) {
+      console.log('No database loaded');
+      return;
+    }
+
+    console.log('=== DATABASE STRUCTURE DEBUG ===');
+    console.log('Main entities:', dbRef.current.entities?.length || 0);
+
+    if (dbRef.current.entities && dbRef.current.entities.length > 0) {
+      console.log('First 10 main entity handles:',
+        dbRef.current.entities.slice(0, 10).map(e => ({ handle: e.handle, type: e.type }))
+      );
+    }
+
+    console.log('Tables:', Object.keys(dbRef.current.tables || {}));
+
+    if (dbRef.current.tables?.BLOCK_RECORD?.entries) {
+      console.log('Blocks found:', dbRef.current.tables.BLOCK_RECORD.entries.length);
+      dbRef.current.tables.BLOCK_RECORD.entries.forEach((block, idx) => {
+        if (block.entities && block.entities.length > 0 && idx < 5) {
+          console.log(`Block "${block.name}":`,
+            block.entities.slice(0, 5).map(e => ({ handle: e.handle, type: e.type }))
+          );
+        }
+      });
+    }
+
+    // Check what handles are actually in the SVG
+    const svgContainer = svgContainerRef.current;
+    if (svgContainer) {
+      const clickableEntities = svgContainer.querySelectorAll('[data-handle]');
+      console.log('SVG handles found:', Array.from(clickableEntities).slice(0, 10).map(el => el.getAttribute('data-handle')));
+    }
+  };
 
   const handleViewEntities = (layerName) => {
     setSelectedLayer(layerName);
     setShowEntitiesDialog(true);
-  };
-
-  const handleDeleteEntity = (entityHandle, entityInfo = null) => {
-    if (!dbRef.current) return;
-
-    const entityToDelete = dbRef.current.entities.find(e => e.handle === entityHandle);
-
-    if (entityToDelete) {
-      setSelectedEntityInfo({
-        handle: entityHandle,
-        type: entityToDelete.type,
-        layer: entityToDelete.layer,
-        source: entityInfo?.source || 'dialog'
-      });
-      setPendingDeleteHandle(entityHandle);
-      setHighlightedEntity(entityHandle);
-      setShowDeleteConfirm(true);
-    }
-  };
-
-  // Function to handle SVG click events
-  const handleSvgClick = (event) => {
-    // Find the clicked element with a data-handle attribute
-    let target = event.target;
-    let entityHandle = null;
-
-    // Traverse up the DOM tree to find an element with data-handle
-    while (target && !entityHandle) {
-      entityHandle = target.getAttribute('data-handle');
-      if (!entityHandle) {
-        target = target.parentElement;
-      }
-    }
-
-    if (entityHandle && dbRef.current) {
-      const entity = dbRef.current.entities.find(e => e.handle === entityHandle);
-      if (entity) {
-        handleDeleteEntity(entityHandle, {
-          source: 'svg-preview',
-          coordinates: { x: event.offsetX, y: event.offsetY }
-        });
-      }
-    }
-  };
-
-  // Function to handle entity hover for visual feedback
-  const handleSvgMouseOver = (event) => {
-    let target = event.target;
-    let entityHandle = null;
-
-    while (target && !entityHandle) {
-      entityHandle = target.getAttribute('data-handle');
-      if (!entityHandle) {
-        target = target.parentElement;
-      }
-    }
-
-    if (entityHandle) {
-      setHoveredEntity(entityHandle);
-      // Show tooltip or highlight
-      target.style.cursor = 'pointer';
-      target.style.opacity = '0.7';
-    }
-  };
-
-  const handleSvgMouseOut = (event) => {
-    setHoveredEntity(null);
-    // Reset styles
-    const target = event.target;
-    target.style.cursor = 'default';
-    target.style.opacity = '1';
-  };
-
-  // Enhanced delete confirmation with more entity info
-  const confirmDeleteEntity = () => {
-    if (!pendingDeleteHandle || !dbRef.current) return;
-
-    // Remove entity from db.entities
-    const entityToDelete = dbRef.current.entities.find(e => e.handle === pendingDeleteHandle);
-    dbRef.current.entities = dbRef.current.entities.filter(e => e.handle !== pendingDeleteHandle);
-
-    // Re-render SVG
-    const svgText = convertToSvg(dbRef.current, [], visibleLayers);
-    setSvg(svgText);
-
-    // Update file info if needed
-    if (fileInfo) {
-      const updatedFileInfo = {
-        ...fileInfo,
-        totalEntities: fileInfo.totalEntities - 1
-      };
-      setFileInfo(updatedFileInfo);
-    }
-
-    // Close dialogs and reset state
-    setShowDeleteConfirm(false);
-    setSelectedEntityInfo(null);
-    setHighlightedEntity(null);
-    setPendingDeleteHandle(null);
-
-    console.log(`Entity deleted: ${entityToDelete?.type} (handle: ${pendingDeleteHandle}) from layer: ${entityToDelete?.layer}`);
   };
 
   const handle = async (e) => {
@@ -147,6 +180,7 @@ export default function App() {
       const dwg = lib.dwg_read_data(buf, Dwg_File_Type.DWG);
       const db = lib.convert(dwg);
       dbRef.current = db;
+      console.log("db ref.current set:", dbRef.current);
 
       console.log("Full database structure:", db);
       console.log("Entities:", db.entities);
@@ -215,7 +249,7 @@ export default function App() {
       lib.dwg_free(dwg);
 
       console.log('Converting to SVG with visible layers:', layers);
-      const svgText = convertToSvg(db, [], layers);
+      const svgText = convertToSvg(db, [], layers, null);
 
       if (!svgText || svgText.includes('No data')) {
         throw new Error('Failed to convert DWG content to SVG. The file may contain unsupported entity types.');
@@ -246,6 +280,324 @@ export default function App() {
     }
   };
 
+  const handleSvgClick = (event) => {
+    console.log('SVG clicked!', event);
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    let target = event.target;
+    let entityHandle = null;
+    let attempts = 0;
+
+    while (target && !entityHandle && attempts < 100) {
+      // console.log(`Target value:`, target, `Checking target tagname:`, target.tagName, ', attempts:', attempts);
+      entityHandle = target.getAttribute('data-handle');
+      console.log(`Checking element:`, target.tagName, ', handle:', entityHandle);
+
+      if (!entityHandle) {
+        target = target.parentElement;
+      }
+      attempts++;
+    }
+
+    console.log('Found entity handle:', entityHandle);
+
+    if (entityHandle && dbRef.current) {
+      // Use the helper function to find the entity
+      const entityResult = findEntityByHandle(entityHandle, dbRef.current);
+
+      console.log('Entity search result:', entityResult);
+
+      if (entityResult) {
+        // Calculate position relative to the viewport
+        const dialogX = event.clientX;
+        const dialogY = Math.max(50, event.clientY - 120);
+
+        setInlineDeleteEntity({
+          handle: entityHandle,
+          type: entityResult.entity.type,
+          layer: entityResult.entity.layer,
+          location: entityResult.location,
+          blockName: entityResult.blockName,
+          source: 'svg-click'
+        });
+
+        setInlineDeletePosition({ x: dialogX, y: dialogY });
+        setShowInlineDeleteDialog(true);
+        setHighlightedEntity(entityHandle);
+
+        console.log('Showing inline delete dialog for:', entityHandle, 'in', entityResult.location);
+
+        // Hide any existing tooltip
+        const tooltip = document.querySelector('.entity-tooltip');
+        if (tooltip) {
+          tooltip.remove();
+        }
+      } else {
+        console.warn('Entity not found in database:', entityHandle);
+        console.log('Available entities in main:', dbRef.current.entities?.length || 0);
+        console.log('Available blocks:', dbRef.current.tables?.BLOCK_RECORD?.entries?.length || 0);
+
+        // Debug: Let's see what's actually in the database
+        if (dbRef.current.entities && dbRef.current.entities.length > 0) {
+          console.log('Sample main entities handles:', dbRef.current.entities.slice(0, 5).map(e => e.handle));
+        }
+
+        if (dbRef.current.tables?.BLOCK_RECORD?.entries) {
+          dbRef.current.tables.BLOCK_RECORD.entries.forEach(block => {
+            if (block.entities && block.entities.length > 0) {
+              console.log(`Block ${block.name} entities:`, block.entities.slice(0, 3).map(e => e.handle));
+            }
+          });
+        }
+
+        // Refresh SVG to ensure consistency
+        const svgText = convertToSvg(dbRef.current, [], visibleLayers, null);
+        setSvg(svgText);
+      }
+    } else {
+      console.log('No entity handle found or no dbRef');
+    }
+  };
+
+  const handleDeleteEntity = (entityHandle, entityInfo = null) => {
+    if (!dbRef.current) return;
+
+    const entityToDelete = dbRef.current.entities.find(e => e.handle === entityHandle);
+
+    if (entityToDelete) {
+      setSelectedEntityInfo({
+        handle: entityHandle,
+        type: entityToDelete.type,
+        layer: entityToDelete.layer,
+        source: entityInfo?.source || 'dialog'
+      });
+      setPendingDeleteHandle(entityHandle);
+      setHighlightedEntity(entityHandle);
+      setShowDeleteConfirm(true);
+    }
+  };
+
+  // function to debug SVG elements
+  const debugSvgElements = () => {
+    const svgContainer = svgContainerRef.current;
+    if (svgContainer) {
+      console.log('=== SVG CONTAINER DEBUG ===');
+      console.log('Container element:', svgContainer);
+
+      // Find the actual SVG element
+      const svgElement = svgContainer.querySelector('svg');
+      console.log('SVG element:', svgElement);
+
+      // Find all clickable entities
+      const clickableEntities = svgContainer.querySelectorAll('[data-handle]');
+      console.log('Clickable entities found:', clickableEntities.length);
+
+      clickableEntities.forEach((entity, index) => {
+        console.log(`Entity ${index}:`, {
+          tagName: entity.tagName,
+          handle: entity.getAttribute('data-handle'),
+          type: entity.getAttribute('data-type'),
+          layer: entity.getAttribute('data-layer')
+        });
+      });
+
+      return {
+        svgElement,
+        clickableEntities: Array.from(clickableEntities)
+      };
+    }
+    return null;
+  };
+
+  const handleCloseInlineDelete = () => {
+    setShowInlineDeleteDialog(false);
+    setInlineDeleteEntity(null);
+    setHighlightedEntity(null);
+  };
+
+  const handleConfirmInlineDelete = () => {
+    if (inlineDeleteEntity && dbRef.current) {
+      console.log('Inline delete - Before deletion:', dbRef.current.entities.length, ' Entity info:', inlineDeleteEntity);
+
+      // Remove entity from database
+      // const entityToDelete = dbRef.current.entities.find(e => e.handle === inlineDeleteEntity.handle);
+      // dbRef.current.entities = dbRef.current.entities.filter(e => e.handle !== inlineDeleteEntity.handle);
+
+      // console.log('Inline delete - After deletion:', dbRef.current.entities.length);
+
+      // Use the helper function to remove the entity
+      const removed = removeEntityByHandle(inlineDeleteEntity.handle, dbRef.current);
+
+      if (removed) {
+        console.log('Inline delete - Entity successfully removed');
+
+        // FORCE immediate SVG update
+        const svgText = convertToSvg(dbRef.current, [], visibleLayers, null);
+        setSvg(svgText);
+
+        // Update file info
+        if (fileInfo) {
+          setFileInfo({
+            ...fileInfo,
+            totalEntities: fileInfo.totalEntities - 1
+          });
+        }
+
+        console.log(`Inline delete completed: ${inlineDeleteEntity.type} (handle: ${inlineDeleteEntity.handle}) from ${inlineDeleteEntity.location}`);
+      } else {
+        console.warn('Failed to remove entity:', inlineDeleteEntity.handle);
+      }
+      // Close dialog and reset state
+      setShowInlineDeleteDialog(false);
+      setInlineDeleteEntity(null);
+      setHighlightedEntity(null);
+    }
+  };
+
+  const handleSvgMouseOver = (event) => {
+    let target = event.target;
+    let entityHandle = null;
+
+    while (target && !entityHandle) {
+      entityHandle = target.getAttribute('data-handle');
+      if (!entityHandle) {
+        target = target.parentElement;
+      }
+    }
+
+    if (entityHandle) {
+      setHoveredEntity(entityHandle);
+      target.style.cursor = 'pointer';
+      target.style.opacity = '0.7';
+
+      createTooltip(entityHandle, event.clientX, event.clientY);
+    }
+  };
+
+  const handleSvgMouseOut = (event) => {
+    setHoveredEntity(null);
+
+    const target = event.target;
+    target.style.cursor = 'default';
+    target.style.opacity = '1';
+
+    const tooltip = document.querySelector('.entity-tooltip');
+    if (tooltip) {
+      tooltip.remove();
+    }
+  };
+
+  // const confirmDeleteEntity = () => {
+  //   if (!pendingDeleteHandle || !dbRef.current) return;
+
+  //   console.log('Before deletion - Total entities:', dbRef.current.entities?.length || 0);
+
+  //   // Remove entity from db.entities
+  //   const entityToDelete = dbRef.current.entities?.find(e => e.handle === pendingDeleteHandle);
+
+  //   if (dbRef.current.entities) {
+  //     dbRef.current.entities = dbRef.current.entities.filter(e => e.handle !== pendingDeleteHandle);
+  //   }
+
+  //   // Also remove from block definitions if it exists there
+  //   if (dbRef.current.tables?.BLOCK_RECORD?.entries) {
+  //     for (const block of dbRef.current.tables.BLOCK_RECORD.entries) {
+  //       if (block.entities) {
+  //         const beforeCount = block.entities.length;
+  //         block.entities = block.entities.filter(e => e.handle !== pendingDeleteHandle);
+  //         if (block.entities.length < beforeCount) {
+  //           console.log(`Entity removed from block: ${block.name}`);
+  //         }
+  //       }
+  //     }
+  //   }
+
+  //   console.log('After deletion - Total entities:', dbRef.current.entities?.length || 0);
+  //   console.log('Deleted entity:', entityToDelete);
+
+  //   // Force re-render SVG immediately
+  //   const svgText = convertToSvg(dbRef.current, [], visibleLayers, null);
+  //   setSvg(svgText);
+
+  //   console.log('SVG regenerated and updated');
+
+  //   // Update file info if needed
+  //   if (fileInfo) {
+  //     const updatedFileInfo = {
+  //       ...fileInfo,
+  //       totalEntities: Math.max(0, fileInfo.totalEntities - 1)
+  //     };
+  //     setFileInfo(updatedFileInfo);
+  //   }
+
+  //   // Close dialogs and reset state
+  //   setShowDeleteConfirm(false);
+  //   setSelectedEntityInfo(null);
+  //   setHighlightedEntity(null);
+  //   setPendingDeleteHandle(null);
+
+  //   console.log(`Entity deleted: ${entityToDelete?.type} (handle: ${pendingDeleteHandle}) from layer: ${entityToDelete?.layer}`);
+  // };
+  const confirmDeleteEntity = () => {
+    if (!pendingDeleteHandle || !dbRef.current) return;
+
+    console.log('Confirming deletion of entity:', pendingDeleteHandle);
+    console.log('Current database structure:', {
+      mainEntities: dbRef.current.entities?.length || 0,
+      blocks: dbRef.current.tables?.BLOCK_RECORD?.entries?.length || 0
+    });
+
+    // Use the helper function to find the entity first
+    const entityResult = findEntityByHandle(pendingDeleteHandle, dbRef.current);
+    console.log('Entity found:', entityResult);
+
+    if (!entityResult) {
+      console.warn('Entity not found in database:', pendingDeleteHandle);
+      // Close dialogs and return
+      setShowDeleteConfirm(false);
+      setSelectedEntityInfo(null);
+      setHighlightedEntity(null);
+      setPendingDeleteHandle(null);
+      return;
+    }
+
+    // Use the helper function to remove the entity
+    const removed = removeEntityByHandle(pendingDeleteHandle, dbRef.current);
+
+    if (removed) {
+      console.log(`Entity successfully deleted from ${entityResult.location}:`, {
+        type: entityResult.entity.type,
+        handle: pendingDeleteHandle,
+        layer: entityResult.entity.layer,
+        blockName: entityResult.blockName
+      });
+
+      // Force re-render SVG immediately
+      const svgText = convertToSvg(dbRef.current, [], visibleLayers, null);
+      setSvg(svgText);
+
+      // Update file info if needed
+      if (fileInfo) {
+        const updatedFileInfo = {
+          ...fileInfo,
+          totalEntities: Math.max(0, fileInfo.totalEntities - 1)
+        };
+        setFileInfo(updatedFileInfo);
+      }
+      console.log(`Entity deleted: ${selectedEntityInfo?.type} (handle: ${pendingDeleteHandle})`);
+    } else {
+      console.warn('Failed to delete entity:', pendingDeleteHandle);
+    }
+
+    // Close dialogs and reset state
+    setShowDeleteConfirm(false);
+    setSelectedEntityInfo(null);
+    setHighlightedEntity(null);
+    setPendingDeleteHandle(null);
+  };
+
   const handleLayerToggle = (layerName) => {
     let updated;
     if (visibleLayers.includes(layerName)) {
@@ -259,7 +611,7 @@ export default function App() {
 
     if (dbRef.current) {
       console.log('Re-rendering SVG with visible layers:', updated);
-      const svgText = convertToSvg(dbRef.current, [], updated);
+      const svgText = convertToSvg(dbRef.current, [], updated, null);
       setSvg(svgText);
     }
   };
@@ -270,7 +622,7 @@ export default function App() {
   const handleSelectAllLayers = () => {
     setVisibleLayers([...allLayers]);
     if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], allLayers);
+      const svgText = convertToSvg(dbRef.current, [], allLayers, null);
       setSvg(svgText);
     }
   };
@@ -278,26 +630,10 @@ export default function App() {
   const handleDeselectAllLayers = () => {
     setVisibleLayers([]);
     if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], []);
+      const svgText = convertToSvg(dbRef.current, [], [], null);
       setSvg(svgText);
     }
   };
-
-  useEffect(() => {
-    const savedSvg = localStorage.getItem('svgContent');
-    const savedDb = localStorage.getItem('dbData');
-    const savedLayers = localStorage.getItem('visibleLayers');
-    const savedZoom = localStorage.getItem('zoom');
-    const savedName = localStorage.getItem('fileName');
-
-    if (savedSvg && savedDb) {
-      setSvg(savedSvg);
-      dbRef.current = JSON.parse(savedDb);
-      setVisibleLayers(JSON.parse(savedLayers || '[]'));
-      setZoom(JSON.parse(savedZoom || '1'));
-      setName(savedName || 'drawing.svg');
-    }
-  }, []);
 
   const handleZoomIn = () => setZoom(z => Math.min(z * 1.2, 10));
   const handleZoomOut = () => setZoom(z => Math.max(z / 1.2, 0.1));
@@ -309,9 +645,8 @@ export default function App() {
     setAllLayers(updatedAllLayers);
     setVisibleLayers(updatedVisibleLayers);
 
-    // Re-render SVG without the deleted layer
     if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], updatedVisibleLayers);
+      const svgText = convertToSvg(dbRef.current, [], updatedVisibleLayers, null);
       setSvg(svgText);
     }
   };
@@ -328,7 +663,6 @@ export default function App() {
     const entity = dbRef.current.entities.find(e => e.handle === entityHandle);
     if (!entity) return null;
 
-    // Calculate bounding box based on entity type
     let bounds = null;
 
     switch (entity.type) {
@@ -373,7 +707,6 @@ export default function App() {
         }
         break;
       default:
-        // For other entities, create a small highlight area
         if (entity.position) {
           bounds = {
             x: entity.position.x - 15,
@@ -386,6 +719,178 @@ export default function App() {
 
     return bounds;
   };
+
+  const createTooltip = (entityHandle, x, y) => {
+    const existingTooltip = document.querySelector('.entity-tooltip');
+    if (existingTooltip) {
+      existingTooltip.remove();
+    }
+
+    if (!entityHandle || !dbRef.current) return;
+
+    const entity = dbRef.current.entities.find(e => e.handle === entityHandle);
+    if (!entity) return;
+
+    const tooltip = document.createElement('div');
+    tooltip.className = 'entity-tooltip';
+    tooltip.innerHTML = `
+    <div>Entity: ${entity.type}</div>
+    <div>Handle: ${entityHandle}</div>
+    ${entity.layer ? `<div>Layer: ${entity.layer}</div>` : ''}
+    <div style="margin-top: 4px; font-size: 10px;">Click to delete</div>
+  `;
+
+    tooltip.style.left = `${x + 10}px`;
+    tooltip.style.top = `${y - 10}px`;
+
+    document.body.appendChild(tooltip);
+
+    setTimeout(() => {
+      if (tooltip.parentNode) {
+        tooltip.remove();
+      }
+    }, 3000);
+  };
+
+  // Update getAllEntities function to work with the new helper
+  const getAllEntities = () => {
+    if (!dbRef.current) return [];
+
+    const allEntities = [];
+
+    // Add main entities
+    // if (dbRef.current.entities && Array.isArray(dbRef.current.entities)) {
+    //   dbRef.current.entities.forEach(entity => {
+    //     allEntities.push({ ...entity, location: 'main', blockName: null });
+    //   });
+    // }
+
+    // Add block entities
+    if (dbRef.current.tables?.BLOCK_RECORD?.entries) {
+      dbRef.current.tables.BLOCK_RECORD.entries.forEach(block => {
+        if (block.entities && Array.isArray(block.entities)) {
+          block.entities.forEach(entity => {
+            allEntities.push({ ...entity, location: 'block', blockName: block.name });
+          });
+        }
+      });
+    }
+
+    return allEntities;
+  };
+
+  // useEffect(() => {
+  //   if (svg && dbRef.current) {
+  //     localStorage.setItem('svgContent', svg);
+  //     localStorage.setItem('dbData', JSON.stringify(dbRef.current));
+  //     localStorage.setItem('visibleLayers', JSON.stringify(visibleLayers));
+  //     localStorage.setItem('zoom', JSON.stringify(zoom));
+  //     localStorage.setItem('fileName', name);
+  //   }
+  // }, [svg, visibleLayers, zoom, name]);
+
+  useEffect(() => {
+    const attachListeners = () => {
+      const svgContainer = svgContainerRef.current;
+      console.log('SVG container:', svgContainer);
+
+      if (svgContainer && svg && !showEditor) {
+        // Remove existing listeners first
+        svgContainer.removeEventListener('click', handleSvgClick);
+        svgContainer.removeEventListener('mouseover', handleSvgMouseOver);
+        svgContainer.removeEventListener('mouseout', handleSvgMouseOut);
+
+        // Check if SVG elements with data-handle attributes are actually rendered
+        const clickableEntities = svgContainer.querySelectorAll('[data-handle]');
+        console.log('Clickable entities found:', clickableEntities.length);
+
+        if (clickableEntities.length > 0) {
+          // Add new listeners only if entities are found
+          svgContainer.addEventListener('click', handleSvgClick);
+          svgContainer.addEventListener('mouseover', handleSvgMouseOver);
+          svgContainer.addEventListener('mouseout', handleSvgMouseOut);
+          console.log('Event listeners attached successfully to', clickableEntities.length, 'entities');
+        } else {
+          // If no entities found, try again after a longer delay
+          console.log('No clickable entities found, retrying in 2 seconds...');
+          setTimeout(attachListeners, 4000);
+        }
+      }
+    };
+
+    if (svg && !showEditor) {
+      // Add a small delay to ensure SVG DOM is rendered
+      const timeout = setTimeout(attachListeners, 4000);
+
+      return () => {
+        clearTimeout(timeout);
+        const svgContainer = svgContainerRef.current;
+        if (svgContainer) {
+          svgContainer.removeEventListener('click', handleSvgClick);
+          svgContainer.removeEventListener('mouseover', handleSvgMouseOver);
+          svgContainer.removeEventListener('mouseout', handleSvgMouseOut);
+        }
+      };
+    }
+  }, [svg, showEditor]);
+
+  // Additional useEffect to ensure listeners are attached when SVG content changes
+  useEffect(() => {
+    if (svg && !showEditor && svgContainerRef.current) {
+      const checkAndAttach = () => {
+        const svgContainer = svgContainerRef.current;
+        const clickableEntities = svgContainer?.querySelectorAll('[data-handle]');
+
+        if (clickableEntities && clickableEntities.length > 0) {
+          console.log('Re-attaching listeners after SVG update to', clickableEntities.length, 'entities');
+
+          // Remove existing listeners
+          svgContainer.removeEventListener('click', handleSvgClick);
+          svgContainer.removeEventListener('mouseover', handleSvgMouseOver);
+          svgContainer.removeEventListener('mouseout', handleSvgMouseOut);
+
+          // Add new listeners
+          svgContainer.addEventListener('click', handleSvgClick);
+          svgContainer.addEventListener('mouseover', handleSvgMouseOver);
+          svgContainer.addEventListener('mouseout', handleSvgMouseOut);
+        }
+      };
+
+      // Use requestAnimationFrame to ensure DOM is fully rendered
+      requestAnimationFrame(() => {
+        setTimeout(checkAndAttach, 100);
+      });
+    }
+  }, [svg]);
+
+  // useEffect(() => {
+  //   const savedSvg = localStorage.getItem('svgContent');
+  //   const savedDb = localStorage.getItem('dbData');
+  //   const savedLayers = localStorage.getItem('visibleLayers');
+  //   const savedZoom = localStorage.getItem('zoom');
+  //   const savedName = localStorage.getItem('fileName');
+
+  //   if (savedSvg && savedDb) {
+  //     setSvg(savedSvg);
+  //     dbRef.current = JSON.parse(savedDb);
+  //     setVisibleLayers(JSON.parse(savedLayers || '[]'));
+  //     setZoom(JSON.parse(savedZoom || '1'));
+  //     setName(savedName || 'drawing.svg');
+  //   }
+  // }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showInlineDeleteDialog && !event.target.closest('.inline-delete-dialog')) {
+        handleCloseInlineDelete();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showInlineDeleteDialog]);
 
   const download = () => {
     if (!svg) return;
@@ -403,23 +908,6 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], visibleLayers, highlightedEntity);
-      setSvg(svgText);
-    }
-  }, [visibleLayers, highlightedEntity]);
-
-  useEffect(() => {
-    if (svg && dbRef.current) {
-      localStorage.setItem('svgContent', svg);
-      localStorage.setItem('dbData', JSON.stringify(dbRef.current));
-      localStorage.setItem('visibleLayers', JSON.stringify(visibleLayers));
-      localStorage.setItem('zoom', JSON.stringify(zoom));
-      localStorage.setItem('fileName', name);
-    }
-  }, [svg, visibleLayers, zoom, name]);
-
   const handleSvgChange = (newSvg) => {
     setSvg(newSvg);
   };
@@ -433,11 +921,11 @@ export default function App() {
     setAllLayers([]);
     setVisibleLayers([]);
     dbRef.current = null;
-    localStorage.removeItem('svgContent');
-    localStorage.removeItem('dbData');
-    localStorage.removeItem('visibleLayers');
-    localStorage.removeItem('zoom');
-    localStorage.removeItem('fileName');
+    // localStorage.removeItem('svgContent');
+    // localStorage.removeItem('dbData');
+    // localStorage.removeItem('visibleLayers');
+    // localStorage.removeItem('zoom');
+    // localStorage.removeItem('fileName');
 
     const fileInput = document.querySelector('input[type="file"]');
     if (fileInput) {
@@ -586,6 +1074,36 @@ export default function App() {
                 disabled={visibleLayers.length === 0}
               >
                 Hide All Layers
+              </button>
+
+              <button
+                onClick={debugSvgElements}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#ffc107',
+                  color: 'black',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  marginRight: '10px'
+                }}
+              >
+                Debug SVG Elements
+              </button>
+
+              <button
+                onClick={debugDatabaseStructure}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#17a2b8',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  marginRight: '10px'
+                }}
+              >
+                Debug Database Structure
               </button>
             </div>
           </div>
@@ -830,7 +1348,7 @@ export default function App() {
                   Close
                 </button>
               </div>
-              <div style={{ maxHeight: '300px', overflow: 'auto' }}>
+              {/* <div style={{ maxHeight: '300px', overflow: 'auto' }}>
                 {dbRef.current && dbRef.current.entities.filter(e => e.layer === selectedLayer).length === 0 ? (
                   <p style={{ color: '#666', fontStyle: 'italic' }}>No entities found in this layer.</p>
                 ) : (
@@ -851,8 +1369,24 @@ export default function App() {
                           transform: highlightedEntity === e.handle ? 'scale(1.01)' : 'scale(1)',
                           boxShadow: highlightedEntity === e.handle ? '0 4px 12px rgba(220, 53, 69, 0.3)' : 'none'
                         }}
-                          onMouseOver={() => setHighlightedEntity(e.handle)}
-                          onMouseOut={() => setHighlightedEntity(null)}
+                          // onMouseOver={() => setHighlightedEntity(e.handle)}
+                          // onMouseOut={() => setHighlightedEntity(null)}
+                          onMouseEnter={() => {
+                            setHighlightedEntity(e.handle);
+                            // Force re-render of SVG with highlighting
+                            if (dbRef.current) {
+                              const svgText = convertToSvg(dbRef.current, [], visibleLayers, e.handle);
+                              setSvg(svgText);
+                            }
+                          }}
+                          onMouseLeave={() => {
+                            setHighlightedEntity(null);
+                            // Re-render SVG without highlighting
+                            if (dbRef.current) {
+                              const svgText = convertToSvg(dbRef.current, [], visibleLayers, null);
+                              setSvg(svgText);
+                            }
+                          }}
                         >
                           {highlightedEntity === e.handle && (
                             <div style={{
@@ -925,6 +1459,120 @@ export default function App() {
                       ))}
                   </ul>
                 )}
+              </div> */}
+              <div style={{ maxHeight: '300px', overflow: 'auto' }}>
+                {(() => {
+                  const allEntities = getAllEntities();
+                  console.log('All entities:', allEntities);
+                  const layerEntities = allEntities.filter(e => e.layer === selectedLayer);
+                  console.log('Layer entities:', layerEntities);
+
+                  return layerEntities.length === 0 ? (
+                    <p style={{ color: '#666', fontStyle: 'italic' }}>No entities found in this layer.</p>
+                  ) : (
+                    <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                      {layerEntities.map(e => (
+                        <li key={e.handle} style={{
+                          marginBottom: '8px',
+                          padding: '8px',
+                          backgroundColor: highlightedEntity === e.handle ? '#ffebee' : '#f8f8f8',
+                          borderRadius: '6px',
+                          border: highlightedEntity === e.handle ? '3px solid #dc3545' : '1px solid #ddd',
+                          display: 'flex',
+                          alignItems: 'center',
+                          cursor: 'pointer',
+                          transition: 'all 0.3s ease',
+                          transform: highlightedEntity === e.handle ? 'scale(1.01)' : 'scale(1)',
+                          boxShadow: highlightedEntity === e.handle ? '0 4px 12px rgba(220, 53, 69, 0.3)' : 'none'
+                        }}
+                          onMouseEnter={() => {
+                            setHighlightedEntity(e.handle);
+                            if (dbRef.current) {
+                              const svgText = convertToSvg(dbRef.current, [], visibleLayers, e.handle);
+                              setSvg(svgText);
+                            }
+                          }}
+                          onMouseLeave={() => {
+                            setHighlightedEntity(null);
+                            if (dbRef.current) {
+                              const svgText = convertToSvg(dbRef.current, [], visibleLayers, null);
+                              setSvg(svgText);
+                            }
+                          }}
+                        >
+                          {highlightedEntity === e.handle && (
+                            <div style={{
+                              width: '8px',
+                              height: '8px',
+                              backgroundColor: '#dc3545',
+                              borderRadius: '50%',
+                              marginRight: '8px',
+                              animation: 'pulse 1s infinite'
+                            }} />
+                          )}
+                          <span style={{ flex: 1, color: 'black', fontWeight: highlightedEntity === e.handle ? 'bold' : 'normal' }}>
+                            <strong style={{ color: highlightedEntity === e.handle ? '#dc3545' : 'black' }}>{e.type}</strong> (handle: {e.handle})
+                            {e.layer && <span style={{ color: highlightedEntity === e.handle ? '#dc3545' : '#666', fontSize: '0.8em' }}> Layer: {e.layer}</span>}
+                            <span style={{ color: '#999', fontSize: '0.7em' }}> [{e.location}]</span>
+                          </span>
+                          {highlightedEntity === e.handle && (
+                            <span style={{
+                              marginLeft: '8px',
+                              padding: '2px 6px',
+                              backgroundColor: '#dc3545',
+                              color: 'white',
+                              borderRadius: '3px',
+                              fontSize: '0.7em',
+                              fontWeight: 'bold'
+                            }}>
+                              HIGHLIGHTED
+                            </span>
+                          )}
+                          <button
+                            style={{
+                              marginLeft: '8px',
+                              padding: '6px 12px',
+                              backgroundColor: highlightedEntity === e.handle ? '#0056b3' : '#007bff',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '3px',
+                              cursor: 'pointer',
+                              fontSize: '0.8em',
+                              fontWeight: highlightedEntity === e.handle ? 'bold' : 'normal'
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setHighlightedEntity(e.handle);
+                            }}
+                            title="Highlight this entity"
+                          >
+                            {highlightedEntity === e.handle ? 'Viewing' : 'Highlight'}
+                          </button>
+                          <button
+                            style={{
+                              marginLeft: '8px',
+                              padding: '6px 12px',
+                              backgroundColor: '#dc3545',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '3px',
+                              cursor: 'pointer',
+                              fontSize: '0.8em',
+                              fontWeight: 'bold'
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDeleteEntity(e.handle, { source: 'entity-dialog' });
+                            }}
+                            title="Delete this entity"
+                          >
+                            Delete
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -998,6 +1646,98 @@ export default function App() {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {showInlineDeleteDialog && inlineDeleteEntity && (
+          <div
+            className="inline-delete-dialog"
+            style={{
+              position: 'fixed',
+              left: `${Math.max(10, Math.min(inlineDeletePosition.x - 100, window.innerWidth - 220))}px`,
+              top: `${Math.max(10, inlineDeletePosition.y)}px`,
+              background: 'white',
+              border: '2px solid #dc3545',
+              borderRadius: '8px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+              zIndex: 25000,
+              padding: '12px',
+              minWidth: '200px',
+              maxWidth: '250px'
+            }}
+          >
+            <div style={{
+              marginBottom: '8px',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              color: '#dc3545',
+              borderBottom: '1px solid #eee',
+              paddingBottom: '6px'
+            }}>
+              🗑️ Delete Entity
+            </div>
+
+            <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+              <div><strong>Type:</strong> {inlineDeleteEntity.type}</div>
+              <div><strong>Handle:</strong> {inlineDeleteEntity.handle}</div>
+              {inlineDeleteEntity.layer && (
+                <div><strong>Layer:</strong> {inlineDeleteEntity.layer}</div>
+              )}
+            </div>
+
+            <div style={{
+              display: 'flex',
+              gap: '8px',
+              justifyContent: 'flex-end',
+              marginTop: '12px'
+            }}>
+              <button
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: '#dc3545',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 'bold'
+                }}
+                onClick={handleConfirmInlineDelete}
+                onMouseOver={(e) => e.target.style.backgroundColor = '#c82333'}
+                onMouseOut={(e) => e.target.style.backgroundColor = '#dc3545'}
+              >
+                Delete
+              </button>
+              <button
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: '#6c757d',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '12px'
+                }}
+                onClick={handleCloseInlineDelete}
+                onMouseOver={(e) => e.target.style.backgroundColor = '#5a6268'}
+                onMouseOut={(e) => e.target.style.backgroundColor = '#6c757d'}
+              >
+                Cancel
+              </button>
+            </div>
+
+            {/* Small arrow pointing down to the entity */}
+            <div style={{
+              position: 'absolute',
+              bottom: '-8px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '0',
+              height: '0',
+              borderLeft: '8px solid transparent',
+              borderRight: '8px solid transparent',
+              borderTop: '8px solid #dc3545'
+            }} />
           </div>
         )}
 
@@ -1145,6 +1885,7 @@ export default function App() {
                 )}
               </div>
               <div
+                // data-svg-container
                 style={{
                   width: '100%',
                   height: '100%',
@@ -1155,9 +1896,6 @@ export default function App() {
                   overflow: 'auto',
                   position: 'relative'
                 }}
-                onClick={handleSvgClick}
-                onMouseOver={handleSvgMouseOver}
-                onMouseOut={handleSvgMouseOut}
               >
                 <div
                   style={{
@@ -1167,7 +1905,12 @@ export default function App() {
                     position: 'relative'
                   }}
                 >
-                  <div dangerouslySetInnerHTML={{ __html: svg }} />
+                  {/* <div dangerouslySetInnerHTML={{ __html: svg }} /> */}
+                  <div
+                    ref={svgContainerRef}
+                    data-svg-container
+                    dangerouslySetInnerHTML={{ __html: svg }}
+                  />
 
                   {highlightedEntity && (() => {
                     const bounds = createHighlightOverlay(highlightedEntity);
@@ -1220,6 +1963,18 @@ export default function App() {
           )}
         </div>
       )}
+      <style>{`
+        @keyframes highlight-pulse {
+          0% { opacity: 0.3; transform: scale(1); }
+          100% { opacity: 0.8; transform: scale(1.02); }
+        }
+        
+        @keyframes pulse {
+          0% { opacity: 1; }
+          50% { opacity: 0.5; }
+          100% { opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }

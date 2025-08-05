@@ -39,7 +39,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   };
 
   const round = (num) => Math.round(num * 10000) / 10000;
-  const normalizeStrokeWidth = () => 4;
+  const normalizeStrokeWidth = () => 8;
 
   const applyTransform = (x, y, transforms = transformStack) => {
     let px = x;
@@ -241,7 +241,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       updateBounds(x1, y1, 'LINE', e.handle);
       updateBounds(x2, y2, 'LINE', e.handle);
 
-      return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke}/>`;
+      let finalStroke = stroke;
+
+      return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${finalStroke}/>`;
     },
 
     ARC: (e, color, stroke, transforms) => {
@@ -274,8 +276,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const largeArc = angleDiff > Math.PI ? 1 : 0;
       const sweepFlag = endAngle > startAngle ? 0 : 1;
 
-      return `<path d="M ${round(x1)} ${round(y1)} A ${round(radius)} ${round(radius)} 0 ${largeArc} ${sweepFlag} ${round(x2)} ${round(y2)}" ${stroke} fill="none"/>`;
+      return `<path d="M ${round(x1)} ${round(y1)} A ${round(radius)} ${round(radius)} 0 ${largeArc} ${sweepFlag} ${round(x2)} ${round(y2)}" ${stroke}/>`;
     },
+
     CIRCLE: (e, color, stroke, transforms) => {
       if (!e.center || !Number.isFinite(e.radius)) return null;
 
@@ -284,8 +287,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       updateBounds(cx - e.radius, cy - e.radius, 'CIRCLE', e.handle);
       updateBounds(cx + e.radius, cy + e.radius, 'CIRCLE', e.handle);
 
-      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(e.radius)}" ${stroke} fill="none"/>`;
+      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(e.radius)}" ${stroke}/>`;
     },
+
     ELLIPSE: (e, color, stroke, transforms) => {
       if (!e.center || !e.majorAxisEndPoint) return null;
 
@@ -298,7 +302,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       updateBounds(cx - rx, cy - ry, 'ELLIPSE', e.handle);
       updateBounds(cx + rx, cy + ry, 'ELLIPSE', e.handle);
 
-      return `<ellipse cx="${round(cx)}" cy="${round(cy)}" rx="${round(rx)}" ry="${round(ry)}" transform="rotate(${round(angle)} ${round(cx)} ${round(cy)})" ${stroke} fill="none"/>`;
+      return `<ellipse cx="${round(cx)}" cy="${round(cy)}" rx="${round(rx)}" ry="${round(ry)}" transform="rotate(${round(angle)} ${round(cx)} ${round(cy)})" ${stroke}/>`;
     },
 
     LWPOLYLINE: (e, color, stroke, transforms) => {
@@ -311,7 +315,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       });
 
       const tag = e.closed || e.flags === 1 ? "polygon" : "polyline";
-      return `<${tag} points="${points.join(' ')}" ${stroke} fill="none"/>`;
+      return `<${tag} points="${points.join(' ')}" ${stroke}/>`;
     },
 
     POLYGON: (e, color, stroke, transforms) => {
@@ -323,7 +327,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return `${round(x)},${round(y)}`;
       });
 
-      return `<polygon points="${points.join(' ')}" ${stroke} fill="none"/>`;
+      return `<polygon points="${points.join(' ')}" ${stroke}/>`;
     },
 
     POLYLINE: (e, color, stroke, transforms) => {
@@ -335,7 +339,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return `${round(x)},${round(y)}`;
       });
 
-      return `<polyline points="${points.join(' ')}" ${stroke} fill="none"/>`;
+      return `<polyline points="${points.join(' ')}" ${stroke}/>`;
     },
 
     OLE2FRAME: (e, color, stroke, transforms) => {
@@ -352,7 +356,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       updateBounds(minX, minY, 'OLE2FRAME', e.handle);
       updateBounds(minX + width, minY + height, 'OLE2FRAME', e.handle);
 
-      return `<rect x="${round(minX)}" y="${round(minY)}" width="${round(width)}" height="${round(height)}" ${stroke} fill="none" stroke-dasharray="5,5"/>`;
+      // Remove fill="none" from stroke since it's already included, add stroke-dasharray
+      const frameStroke = stroke.replace(/fill="[^"]*"\s*/, '') + ' stroke-dasharray="5,5"';
+      return `<rect x="${round(minX)}" y="${round(minY)}" width="${round(width)}" height="${round(height)}" ${frameStroke}/>`;
     },
 
     HATCH: (e, color, stroke, transforms) => {
@@ -382,7 +388,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
         if (pathData) {
           pathData += ' Z';
-          paths.push(`<path d="${pathData}" fill="rgba(${color.r},${color.g},${color.b},0.2)" ${stroke}/>`);
+          // Use the stroke as-is since it already contains the correct fill value
+          paths.push(`<path d="${pathData}" ${stroke}/>`);
         }
       }
 
@@ -397,9 +404,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       updateBounds(x, y, 'MTEXT', e.handle);
 
       const fontSize = Math.max((e.height || 12) * config.textSizeMultiplier, 8);
-      const rotation = e.rotation ? ` transform="rotate(${e.rotation * 180 / Math.PI} ${round(x)} ${round(y)})"` : '';
+      const rotation = e.rotation ? ` transform="rotate(${e.rotation * 180 / Math.PI} ${round(x)} ${round(y)}) scale(1,-1)"` : ' transform="scale(1,-1)"';
 
-      return `<text x="${round(x)}" y="${round(y)}" font-size="${fontSize}" fill="rgb(${color.r},${color.g},${color.b})" transform="scale(1,-1)" ${rotation}>${escapeXml(e.text)}</text>`;
+      return `<text x="${round(x)}" y="${round(y)}" font-size="${fontSize}" fill="rgb(${color.r},${color.g},${color.b})"${rotation}>${escapeXml(e.text)}</text>`;
     },
 
     TEXT: (e, color, stroke, transforms) => {
@@ -409,9 +416,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       updateBounds(x, y, 'TEXT', e.handle);
 
       const fontSize = Math.max((e.height || 12) * config.textSizeMultiplier, 8);
-      const rotation = e.rotation ? ` transform="rotate(${e.rotation * 180 / Math.PI} ${round(x)} ${round(y)})"` : '';
+      const rotation = e.rotation ? ` transform="rotate(${e.rotation * 180 / Math.PI} ${round(x)} ${round(y)}) scale(1,-1)"` : ' transform="scale(1,-1)"';
 
-      return `<text x="${round(x)}" y="${round(y)}" font-size="${fontSize}" fill="rgb(${color.r},${color.g},${color.b})" transform="scale(1,-1)" ${rotation}>${escapeXml(e.text)}</text>`;
+      return `<text x="${round(x)}" y="${round(y)}" font-size="${fontSize}" fill="rgb(${color.r},${color.g},${color.b})"${rotation}>${escapeXml(e.text)}</text>`;
     },
 
     DIMENSION: (e, color, stroke, transforms) => {
@@ -448,7 +455,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       if (items.length === 0 && e.defPoint1 && e.defPoint2) {
         const [x1, y1] = applyTransform(e.defPoint1.x, e.defPoint1.y, transforms);
         const [x2, y2] = applyTransform(e.defPoint2.x, e.defPoint2.y, transforms);
-        items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke} stroke-dasharray="2,2"/>`);
+        const dashedStroke = stroke + ' stroke-dasharray="2,2"';
+        items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${dashedStroke}/>`);
         updateBounds(x1, y1, 'DIMENSION', e.handle);
         updateBounds(x2, y2, 'DIMENSION', e.handle);
       }
@@ -479,8 +487,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       });
 
       return config.simplifySplines
-        ? `<polyline points="${transformedPoints.join(' ')}" fill="none" ${stroke}/>`
-        : `<path d="${transformedPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.replace(',', ' ')}`).join(' ')}" fill="none" ${stroke}/>`;
+        ? `<polyline points="${transformedPoints.join(' ')}" ${stroke}/>`
+        : `<path d="${transformedPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.replace(',', ' ')}`).join(' ')}" ${stroke}/>`;
     },
 
     SOLID: (e, color, stroke, transforms) => {
@@ -492,7 +500,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return `${round(x)},${round(y)}`;
       });
 
-      return `<polygon points="${points.join(' ')}" fill="rgb(${color.r},${color.g},${color.b})" ${stroke}/>`;
+      // For SOLID entities, we want to fill with color and use stroke for border
+      const solidStroke = stroke.replace(/fill="[^"]*"/, `fill="rgb(${color.r},${color.g},${color.b})"`);
+      return `<polygon points="${points.join(' ')}" ${solidStroke}/>`;
     },
 
     '3DFACE': (e, color, stroke, transforms) => {
@@ -505,7 +515,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return `${round(x)},${round(y)}`;
       });
 
-      return `<polygon points="${points.join(' ')}" fill="none" ${stroke}/>`;
+      return `<polygon points="${points.join(' ')}" ${stroke}/>`;
     },
 
     INSERT: (e, color, stroke, transforms) => {
@@ -531,9 +541,14 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const transformAttr = `${translate}${rotate}${scale}`;
 
       const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
-      const highlightStyle = isHighlighted ? `stroke="red" stroke-width="3" fill="rgba(255,0,0,0.1)"` : `stroke="black" fill="none"`;
 
-      // Add data attributes for identification and deletion
+      let useAttributes;
+      if (isHighlighted) {
+        useAttributes = `stroke="red" stroke-width="12" fill="rgba(255,0,0,0.4)" opacity="1"`;
+      } else {
+        useAttributes = `stroke="black" fill="none" stroke-width="1"`;
+      }
+
       const dataHandle = e.handle ? `data-handle="${e.handle}"` : '';
       const dataLayer = e.layer ? `data-layer="${e.layer}"` : '';
       const dataType = `data-type="INSERT"`;
@@ -541,7 +556,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const entityClass = `class="dwg-entity deletable-entity insert-block"`;
       const hoverStyle = `style="cursor: pointer; transition: all 0.2s;"`;
 
-      return `<use href="#${escapeXml(blockName)}" transform="${transformAttr}" ${highlightStyle} ${dataHandle} ${dataLayer} ${dataType} ${dataBlock} ${entityClass} ${hoverStyle} />`;
+      return `<use href="#${escapeXml(blockName)}" transform="${transformAttr}" ${useAttributes} ${dataHandle} ${dataLayer} ${dataType} ${dataBlock} ${entityClass} ${hoverStyle} />`;
     },
   };
 
@@ -592,17 +607,18 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
       if (isHighlighted) {
         strokeColor = '#FF0000';
-        strokeWidth_final = '4'; 
-        fillColor = 'rgba(255, 0, 0, 0.3)'; 
+        strokeWidth_final = '15';
+        fillColor = e.type === 'HATCH' ? 'rgba(255, 0, 0, 0.3)' : 'none';
         strokeDashArray = '8,4';
         strokeOpacity = '1';
       } else {
         strokeColor = `rgb(${color.r},${color.g},${color.b})`;
         strokeWidth_final = strokeWidth;
-        fillColor = 'none';
+        fillColor = e.type === 'HATCH' ? 'rgba(0,0,0,0.2)' : 'none';
         strokeDashArray = 'none';
         strokeOpacity = '0.8';
       }
+
       const stroke = `stroke="${strokeColor}" stroke-width="${strokeWidth_final}" fill="${fillColor}" stroke-dasharray="${strokeDashArray}" stroke-opacity="${strokeOpacity}"`;
 
       const result = handler(e, color, stroke, currentTransforms);
@@ -611,24 +627,27 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         const dataLayer = e.layer ? `data-layer="${e.layer}"` : '';
         const dataType = `data-type="${e.type}"`;
         const highlightClass = isHighlighted ? 'highlighted-entity' : 'dwg-entity';
-        const entityClass = `class="${highlightClass} deletable-entity"`;
+        const entityClass = `class="${highlightClass} deletable-entity clickable-entity"`;
+        const clickAttributes = `style="cursor: pointer; transition: opacity 0.2s;"`;
 
-        if (result.startsWith('<g ') || result.startsWith('<g>')) {
-          const insertPos = result.indexOf('>');
-          const updatedResult = result.slice(0, insertPos) +
-            ` ${dataHandle} ${dataLayer} ${dataType} ${entityClass}` +
-            result.slice(insertPos);
-          if (updatedResult) processedElements++;
-          return updatedResult;
-        } else {
-          const tagMatch = result.match(/^<(\w+)/);
-          if (tagMatch) {
-            const insertPos = result.indexOf(' ') > 0 ? result.indexOf(' ') : result.indexOf('>');
+        if (!result.includes('data-handle="')) {
+          if (result.startsWith('<g ') || result.startsWith('<g>')) {
+            const insertPos = result.indexOf('>');
             const updatedResult = result.slice(0, insertPos) +
-              ` ${dataHandle} ${dataLayer} ${dataType} ${entityClass}` +
+              ` ${dataHandle} ${dataLayer} ${dataType} ${entityClass} ${clickAttributes}` +
               result.slice(insertPos);
             if (updatedResult) processedElements++;
             return updatedResult;
+          } else {
+            const tagMatch = result.match(/^<(\w+)/);
+            if (tagMatch) {
+              const insertPos = result.indexOf(' ') > 0 ? result.indexOf(' ') : result.indexOf('>');
+              const updatedResult = result.slice(0, insertPos) +
+                ` ${dataHandle} ${dataLayer} ${dataType} ${entityClass} ${clickAttributes}` +
+                result.slice(insertPos);
+              if (updatedResult) processedElements++;
+              return updatedResult;
+            }
           }
         }
       }
@@ -675,7 +694,6 @@ ${regularElements.join('\n')}
     }
 
     for (const e of insertEntities) {
-      if (!db.entities.some(ent => ent.handle === e.handle)) continue; // ✅ skip deleted
       const useElement = generateInsertUseElement(e, source, currentTransforms);
       if (useElement) {
         content.push(useElement);
@@ -733,8 +751,35 @@ ${regularElements.join('\n')}
 
     updateBounds(insertPoint.x, insertPoint.y);
 
-    return `<g id="${groupId}" stroke="rgb(0,0,0)" fill="none">
-  <use href="#${escapeXml(blockName)}" transform="${transformAttr}"/>
+    const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
+
+    let strokeStyle, fillStyle, filterStyle, strokeWidth_final;
+    if (isHighlighted) {
+      strokeStyle = 'stroke="red"';
+      fillStyle = 'fill="rgba(255, 0, 0, 1)"';
+      filterStyle = 'style="filter: drop-shadow(0 0 10px red);"';
+      strokeWidth_final = '10';
+    } else {
+      strokeStyle = 'stroke="rgb(0,0,0)"';
+      fillStyle = 'fill="none"';
+      filterStyle = '';
+      strokeWidth_final = normalizeStrokeWidth();
+    }
+
+    // Add data attributes for identification
+    const dataHandle = e.handle ? `data-handle="${e.handle}"` : '';
+    const dataLayer = e.layer ? `data-layer="${e.layer}"` : '';
+    const dataType = `data-type="INSERT"`;
+    const dataBlock = `data-block="${blockName}"`;
+    const entityClass = isHighlighted ?
+      `class="dwg-entity deletable-entity insert-block highlighted-entity"` :
+      `class="dwg-entity deletable-entity insert-block"`;
+
+    // Combine all attributes for the use element, avoiding duplicates
+    const useAttributes = `${strokeStyle} ${fillStyle} ${filterStyle}`.trim();
+
+    return `<g id="${e.handle}" stroke-width="${strokeWidth_final}" ${dataHandle} ${dataLayer} ${dataType} ${dataBlock} ${entityClass}>
+  <use href="#${escapeXml(blockName)}" transform="${transformAttr}" ${useAttributes} />
 </g>`;
   };
 
@@ -833,21 +878,21 @@ ${defs.join('\n')}
     }
   }
 
-  db.entities = db.entities.filter(e => {
-    if (e.type !== 'INSERT') return true;
-    const pt = e.insertionPoint || e.position;
-    if (!pt) return false;
+  // db.entities = db.entities.filter(e => {
+  //   if (e.type !== 'INSERT') return true;
+  //   const pt = e.insertionPoint || e.position;
+  //   if (!pt) return false;
 
-    const nearOrigin = Math.abs(pt.x) < 1e-6 && Math.abs(pt.y) < 1e-6;
-    const isClutterLayer = e.layer === 'I-FURN';
+  //   const nearOrigin = Math.abs(pt.x) < 1e-6 && Math.abs(pt.y) < 1e-6;
+  //   const isClutterLayer = e.layer === 'I-FURN';
 
-    if (nearOrigin && isClutterLayer) {
-      console.warn(`Skipping INSERT at origin on I-FURN: block=${e.blockName}, handle=${e.handle}`);
-      return false;
-    }
+  //   if (nearOrigin && isClutterLayer) {
+  //     console.warn(`Skipping INSERT at origin on I-FURN: block=${e.blockName}, handle=${e.handle}`);
+  //     return false;
+  //   }
 
-    return true;
-  });
+  //   return true;
+  // });
 
   // --- Outlier filtering for bounds ---
   const allPoints = [];
@@ -923,19 +968,52 @@ ${defs.join('\n')}
 <style>
   .dwg-entity:hover {
     opacity: 0.7 !important;
-    stroke-width: 2 !important;
+    stroke-width: 3 !important;
   }
   .deletable-entity {
     cursor: pointer;
   }
+  .clickable-entity:hover {
+    stroke: #ff6b6b !important;
+    stroke-width: 4 !important;
+    opacity: 0.8 !important;
+  }
   .insert-block:hover {
     stroke: #ff6b6b !important;
-    stroke-width: 2 !important;
+    stroke-width: 3 !important;
+    fill: rgba(255, 107, 107, 0.2) !important;
   }
   .highlighted-entity {
     stroke: red !important;
-    stroke-width: 3 !important;
-    fill: rgba(255, 0, 0, 0.1) !important;
+    stroke-width: 6 !important;
+    fill: rgba(255, 0, 0, 0.3) !important;
+    animation: pulse-highlight 1s infinite alternate;
+  }
+  .highlighted-entity use {
+    stroke: red !important;
+    stroke-width: 8 !important;
+    fill: rgba(255, 0, 0, 0.4) !important;
+  }
+  g.highlighted-entity {
+    filter: drop-shadow(0 0 15px rgba(255, 0, 0, 0.8)) !important;
+  }
+  
+  @keyframes pulse-highlight {
+    from { opacity: 0.8; }
+    to { opacity: 1; }
+  }
+  
+  /* Entity hover tooltip */
+  .entity-tooltip {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    pointer-events: none;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
   }
 </style>
 `;
