@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Dwg_File_Type, LibreDwg } from '@mlightcad/libredwg-web';
 import { convertToSvg } from './utils/convert2svg';
 import SVGEditor from './components/SVGEditor';
+import './App.css'
 
 export default function App() {
   const [svg, setSvg] = useState('');
@@ -244,6 +245,41 @@ export default function App() {
     }
   };
 
+  function createDWGViewer(svgData) {
+    // Handle both old format (string) and new format (object)
+    const svg = typeof svgData === 'string' ? svgData : svgData.svg;
+    const dimensions = svgData.dimensions || {
+      contentWidth: 'unknown',
+      contentHeight: 'unknown',
+      category: 'medium',
+      containerHeight: 600
+    };
+
+    return `
+    <div class="dwg-svg-container" style="--container-height: ${dimensions.containerHeight}px;">
+      ${svg}
+      <div class="dwg-svg-info">
+        ${dimensions.contentWidth} × ${dimensions.contentHeight} 
+        (${dimensions.category})
+      </div>
+    </div>
+  `;
+  }
+
+  function processDWGFile(dwgData) {
+    // Call convertToSvg (this returns an object now)
+    const svgData = convertToSvg(dwgData, [], null, null);
+
+    // Create the viewer HTML
+    const viewerHTML = createDWGViewer(svgData);
+
+    // Insert into your container
+    document.getElementById('svg-container').innerHTML = viewerHTML;
+
+    // Optional: Log dimensions for debugging
+    console.log('DWG processed:', svgData.dimensions);
+  }
+
   const handleSvgClick = (event) => {
     console.log('SVG clicked!', event);
 
@@ -255,7 +291,6 @@ export default function App() {
     let attempts = 0;
 
     while (target && !entityHandle && attempts < 100) {
-      // console.log(`Target value:`, target, `Checking target tagname:`, target.tagName, ', attempts:', attempts);
       entityHandle = target.getAttribute('data-handle');
       console.log(`Checking element:`, target.tagName, ', handle:', entityHandle);
 
@@ -685,13 +720,6 @@ export default function App() {
 
     const allEntities = [];
 
-    // Add main entities
-    // if (dbRef.current.entities && Array.isArray(dbRef.current.entities)) {
-    //   dbRef.current.entities.forEach(entity => {
-    //     allEntities.push({ ...entity, location: 'main', blockName: null });
-    //   });
-    // }
-
     // Add block entities
     if (dbRef.current.tables?.BLOCK_RECORD?.entries) {
       dbRef.current.tables.BLOCK_RECORD.entries.forEach(block => {
@@ -705,16 +733,6 @@ export default function App() {
 
     return allEntities;
   };
-
-  useEffect(() => {
-    if (svg && dbRef.current) {
-      localStorage.setItem('svgContent', svg);
-      localStorage.setItem('dbData', JSON.stringify(dbRef.current));
-      localStorage.setItem('visibleLayers', JSON.stringify(visibleLayers));
-      localStorage.setItem('zoom', JSON.stringify(zoom));
-      localStorage.setItem('fileName', name);
-    }
-  }, [svg, visibleLayers, zoom, name]);
 
   useEffect(() => {
     const attachListeners = () => {
@@ -791,22 +809,6 @@ export default function App() {
   }, [svg]);
 
   useEffect(() => {
-    const savedSvg = localStorage.getItem('svgContent');
-    const savedDb = localStorage.getItem('dbData');
-    const savedLayers = localStorage.getItem('visibleLayers');
-    const savedZoom = localStorage.getItem('zoom');
-    const savedName = localStorage.getItem('fileName');
-
-    if (savedSvg && savedDb) {
-      setSvg(savedSvg);
-      dbRef.current = JSON.parse(savedDb);
-      setVisibleLayers(JSON.parse(savedLayers || '[]'));
-      setZoom(JSON.parse(savedZoom || '1'));
-      setName(savedName || 'drawing.svg');
-    }
-  }, []);
-
-  useEffect(() => {
     const handleClickOutside = (event) => {
       if (showInlineDeleteDialog && !event.target.closest('.inline-delete-dialog')) {
         handleCloseInlineDelete();
@@ -848,11 +850,6 @@ export default function App() {
     setAllLayers([]);
     setVisibleLayers([]);
     dbRef.current = null;
-    localStorage.removeItem('svgContent');
-    localStorage.removeItem('dbData');
-    localStorage.removeItem('visibleLayers');
-    localStorage.removeItem('zoom');
-    localStorage.removeItem('fileName');
 
     const fileInput = document.querySelector('input[type="file"]');
     if (fileInput) {
@@ -936,8 +933,8 @@ export default function App() {
             marginTop: '10px',
             fontSize: '0.9em'
           }}>
-            <strong style={{ color: 'black' }}>File Analysis:</strong>
-            <ul style={{ margin: '10px 0', paddingLeft: '20px', color: 'black' }}>
+            <strong style={{ color: 'black', textAlign: 'left', display: 'block' }}>File Analysis:</strong>
+            <ul style={{ margin: '10px 0', paddingLeft: '20px', color: 'black', textAlign: 'left' }}>
               <li>Total Entities: {fileInfo.totalEntities}</li>
               <li>Entity Types: {fileInfo.entityTypes.join(', ')}</li>
               <li>Blocks: {fileInfo.blocks.length}</li>
@@ -946,7 +943,7 @@ export default function App() {
             </ul>
             {fileInfo.blocks.length > 0 && (
               <details style={{ marginTop: '10px' }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: 'black' }}>Block Details</summary>
+                <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: 'black', textAlign: 'left' }}>Block Details</summary>
                 <ul style={{ margin: '5px 0', paddingLeft: '20px', color: 'black' }}>
                   {fileInfo.blocks.map((block, idx) => (
                     <li key={idx}>
@@ -958,7 +955,7 @@ export default function App() {
               </details>
             )}
 
-            <div style={{ marginTop: '10px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <div style={{ marginTop: '10px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center' }}>
               <button
                 style={{
                   padding: '8px 16px',
@@ -1620,7 +1617,7 @@ export default function App() {
 
         {/* --- Zoom Controls --- */}
         {svg && !isLoading && (
-          <div style={{ marginTop: '15px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <div style={{ marginTop: '15px', display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'center' }}>
             <button
               onClick={handleZoomIn}
               style={{
@@ -1672,7 +1669,8 @@ export default function App() {
               borderRadius: "4px",
               padding: "1rem",
               marginTop: "1rem",
-              maxHeight: '70vh',
+              // maxHeight: '70vh',
+              height: '70vh',
               overflow: 'auto',
               backgroundColor: 'white',
               boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
@@ -1698,8 +1696,7 @@ export default function App() {
                   </span>
                 )}
               </div>
-              <div
-                // data-svg-container
+              {/* <div
                 style={{
                   width: '100%',
                   height: '100%',
@@ -1710,18 +1707,56 @@ export default function App() {
                   overflow: 'auto',
                   position: 'relative'
                 }}
+              > */}
+              <div
+                style={{
+                  width: '100%',
+                  flex: 1,
+                  // overflow: 'auto',
+                  position: 'relative',
+                  minHeight: 0
+                }}
               >
-                <div
+                {/* <div
                   style={{
                     transform: `scale(${zoom})`,
                     transformOrigin: 'top left',
                     transition: 'transform 0.2s',
                     position: 'relative'
                   }}
+                > */}
+                <div
+                  style={{
+                    transform: `scale(${zoom})`,
+                    transformOrigin: 'top left',
+                    transition: 'transform 0.2s',
+                    position: 'relative',
+                    // width: '100%',
+                    // height: '100%',
+                    width: `${100 * zoom}%`, // Scale width with zoom
+                    height: `${100 * zoom}%`, // Scale height with zoom
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center'
+                  }}
                 >
+                  {/* <div
+                    ref={svgContainerRef}
+                    data-svg-container
+                    dangerouslySetInnerHTML={{ __html: svg }}
+                  /> */}
                   <div
                     ref={svgContainerRef}
                     data-svg-container
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      minWidth: '400px', // Ensure minimum size for small SVGs
+                      minHeight: '400px',
+                      display: 'flex',  
+                      justifyContent: 'center',
+                      alignItems: 'center'
+                    }}
                     dangerouslySetInnerHTML={{ __html: svg }}
                   />
 

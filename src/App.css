@@ -40,3 +40,45 @@
 .read-the-docs {
   color: #888;
 }
+
+.dwg-svg-container {
+  width: 100%;
+  height: var(--container-height, 600px);
+  max-height: 90vh;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8f9fa;
+  position: relative;
+}
+
+.dwg-svg-container svg {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  transition: all 0.3s ease;
+}
+
+.dwg-svg-info {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(0,0,0,0.7);
+  color: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+[data-svg-container] svg {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain;
+}

@@ -66,6 +66,376 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     return [px, py];
   };
 
+  const calculateTightBounds = (entities) => {
+    const tightBounds = {
+      minX: Infinity,
+      minY: Infinity,
+      maxX: -Infinity,
+      maxY: -Infinity,
+      valid: false
+    };
+
+    const addPoint = (x, y, entityType = 'unknown', handle = '') => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        console.warn(`Invalid point: (${x}, ${y}) from ${entityType}:${handle}`);
+        return;
+      }
+      // Filter extreme coordinates
+      if (Math.abs(x) > 1000000 || Math.abs(y) > 1000000) {
+        console.warn(`Extreme coordinate filtered: (${x}, ${y}) from ${entityType}:${handle}`);
+        return;
+      }
+      tightBounds.minX = Math.min(tightBounds.minX, x);
+      tightBounds.minY = Math.min(tightBounds.minY, y);
+      tightBounds.maxX = Math.max(tightBounds.maxX, x);
+      tightBounds.maxY = Math.max(tightBounds.maxY, y);
+      tightBounds.valid = true;
+    };
+
+    entities.forEach(entity => {
+      if (!entity?.type) return;
+
+      // Skip annotation and symbol layers that cause positioning issues
+      if (entity.layer === 'G-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') return;
+
+      //     // Apply layer visibility check
+      if (entity.layer && !isLayerVisible(entity.layer)) return;
+
+      switch (entity.type) {
+        case 'LINE':
+          if (entity.startPoint && entity.endPoint) {
+            const [x1, y1] = applyTransform(entity.startPoint.x, entity.startPoint.y, transformStack);
+            const [x2, y2] = applyTransform(entity.endPoint.x, entity.endPoint.y, transformStack);
+            addPoint(x1, y1, 'LINE', entity.handle);
+            addPoint(x2, y2, 'LINE', entity.handle);
+          }
+          break;
+        case 'CIRCLE':
+          if (entity.center && entity.radius) {
+            const [cx, cy] = applyTransform(entity.center.x, entity.center.y, transformStack);
+            addPoint(cx - entity.radius, cy - entity.radius, 'CIRCLE', entity.handle);
+            addPoint(cx + entity.radius, cy + entity.radius, 'CIRCLE', entity.handle);
+          }
+          break;
+        case 'ARC':
+          if (entity.center && entity.radius) {
+            const startAngle = entity.startAngle || 0;
+            const endAngle = entity.endAngle || 2 * Math.PI;
+            const sx = entity.center.x + entity.radius * Math.cos(startAngle);
+            const sy = entity.center.y + entity.radius * Math.sin(startAngle);
+            const ex = entity.center.x + entity.radius * Math.cos(endAngle);
+            const ey = entity.center.y + entity.radius * Math.sin(endAngle);
+            const [x1, y1] = applyTransform(sx, sy, transformStack);
+            const [x2, y2] = applyTransform(ex, ey, transformStack);
+            addPoint(x1, y1, 'ARC', entity.handle);
+            addPoint(x2, y2, 'ARC', entity.handle);
+            const [cx, cy] = applyTransform(entity.center.x, entity.center.y, transformStack);
+            addPoint(cx - entity.radius, cy - entity.radius, 'ARC', entity.handle);
+            addPoint(cx + entity.radius, cy + entity.radius, 'ARC', entity.handle);
+          }
+          break;
+        case 'LWPOLYLINE':
+        case 'POLYLINE':
+        case 'POLYGON':
+          if (entity.vertices && Array.isArray(entity.vertices)) {
+            entity.vertices.forEach(vertex => {
+              if (vertex && Number.isFinite(vertex.x) && Number.isFinite(vertex.y)) {
+                const [x, y] = applyTransform(vertex.x, vertex.y, transformStack);
+                addPoint(x, y, entity.type, entity.handle);
+              }
+            });
+          }
+          break;
+        case 'TEXT':
+        case 'MTEXT':
+          const textPos = entity.position || entity.insertionPoint || entity.insert;
+          if (textPos) {
+            const [x, y] = applyTransform(textPos.x, textPos.y, transformStack);
+            addPoint(x, y, entity.type, entity.handle);
+          }
+          break;
+        case 'INSERT':
+          const insertPos = entity.insertionPoint || entity.position;
+          if (insertPos && !(Math.abs(insertPos.x) < 1e-6 && Math.abs(insertPos.y) < 1e-6)) {
+            const [x, y] = applyTransform(insertPos.x, insertPos.y, transformStack);
+            addPoint(x, y, 'INSERT', entity.handle);
+          }
+          break;
+        case 'ELLIPSE':
+          if (entity.center && entity.majorAxisEndPoint) {
+            const rx = Math.sqrt(entity.majorAxisEndPoint.x ** 2 + entity.majorAxisEndPoint.y ** 2);
+            const ry = rx * (entity.axisRatio || 1);
+            const [cx, cy] = applyTransform(entity.center.x, entity.center.y, transformStack);
+            addPoint(cx - rx, cy - ry, 'ELLIPSE', entity.handle);
+            addPoint(cx + rx, cy + ry, 'ELLIPSE', entity.handle);
+          }
+          break;
+        case 'OLE2FRAME':
+          if (entity.lowerLeft && entity.upperRight) {
+            const [x1, y1] = applyTransform(entity.lowerLeft.x, entity.lowerLeft.y, transformStack);
+            const [x2, y2] = applyTransform(entity.upperRight.x, entity.upperRight.y, transformStack);
+            addPoint(x1, y1, 'OLE2FRAME', entity.handle);
+            addPoint(x2, y2, 'OLE2FRAME', entity.handle);
+          }
+          break;
+        case 'HATCH':
+          if (Array.isArray(entity.boundaryPaths)) {
+            entity.boundaryPaths.forEach(boundary => {
+              if (Array.isArray(boundary.edges)) {
+                boundary.edges.forEach(edge => {
+                  if (edge.type === 1 && edge.start && edge.end) {
+                    const [x1, y1] = applyTransform(edge.start.x, edge.start.y, transformStack);
+                    const [x2, y2] = applyTransform(edge.end.x, edge.end.y, transformStack);
+                    addPoint(x1, y1, 'HATCH', entity.handle);
+                    addPoint(x2, y2, 'HATCH', entity.handle);
+                  }
+                });
+              }
+            });
+          }
+          break;
+        case 'SPLINE':
+          const points = entity.controlPoints || entity.fitPoints;
+          if (Array.isArray(points)) {
+            points.forEach(pt => {
+              if (pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)) {
+                const [x, y] = applyTransform(pt.x, pt.y, transformStack);
+                addPoint(x, y, 'SPLINE', entity.handle);
+              }
+            });
+          }
+          break;
+        case 'SOLID':
+        case '3DFACE':
+          const corners = entity.corners || [entity.corner1, entity.corner2, entity.corner3, entity.corner4].filter(Boolean);
+          if (Array.isArray(corners)) {
+            corners.forEach(corner => {
+              if (corner) {
+                const [x, y] = applyTransform(corner.x, corner.y, transformStack);
+                addPoint(x, y, entity.type, entity.handle);
+              }
+            });
+          }
+          break;
+        case 'LEADER':
+          if (Array.isArray(entity.vertices)) {
+            entity.vertices.forEach(vertex => {
+              if (vertex) {
+                const [x, y] = applyTransform(vertex.x, vertex.y, transformStack);
+                addPoint(x, y, 'LEADER', entity.handle);
+              }
+            });
+          }
+          break;
+        case 'DIMENSION':
+          // Handle dimension lines
+          if (entity.dimensionLine?.start && entity.dimensionLine?.end) {
+            const [x1, y1] = applyTransform(entity.dimensionLine.start.x, entity.dimensionLine.start.y, transformStack);
+            const [x2, y2] = applyTransform(entity.dimensionLine.end.x, entity.dimensionLine.end.y, transformStack);
+            addPoint(x1, y1, 'DIMENSION', entity.handle);
+            addPoint(x2, y2, 'DIMENSION', entity.handle);
+          }
+
+          // Handle extension lines
+          if (Array.isArray(entity.extensionLines)) {
+            entity.extensionLines.forEach(line => {
+              if (line?.start && line?.end) {
+                const [x1, y1] = applyTransform(line.start.x, line.start.y, transformStack);
+                const [x2, y2] = applyTransform(line.end.x, line.end.y, transformStack);
+                addPoint(x1, y1, 'DIMENSION', entity.handle);
+                addPoint(x2, y2, 'DIMENSION', entity.handle);
+              }
+            });
+          }
+
+          // Handle text position
+          if (entity.text && entity.textPosition) {
+            const [x, y] = applyTransform(entity.textPosition.x, entity.textPosition.y, transformStack);
+            addPoint(x, y, 'DIMENSION', entity.handle);
+          }
+
+          // Handle definition points as fallback
+          if (entity.defPoint1 && entity.defPoint2) {
+            const [x1, y1] = applyTransform(entity.defPoint1.x, entity.defPoint1.y, transformStack);
+            const [x2, y2] = applyTransform(entity.defPoint2.x, entity.defPoint2.y, transformStack);
+            addPoint(x1, y1, 'DIMENSION', entity.handle);
+            addPoint(x2, y2, 'DIMENSION', entity.handle);
+          }
+          break;
+
+        case 'POINT':
+          if (entity.position) {
+            const [cx, cy] = applyTransform(entity.position.x, entity.position.y, transformStack);
+            addPoint(cx, cy, 'POINT', entity.handle);
+          }
+          break;
+
+        case 'MLINE':
+          if (Array.isArray(entity.vertices) && entity.vertices.length >= 2) {
+            const numLines = entity.numberOfLines || entity.elements?.length || 2;
+            const spacing = entity.lineSpacing || 10;
+
+            // Calculate bounds for all parallel lines
+            for (let i = 0; i < entity.vertices.length - 1; i++) {
+              const start = entity.vertices[i];
+              const end = entity.vertices[i + 1];
+
+              if (!start || !end) continue;
+
+              // Calculate direction vector
+              const dx = end.x - start.x;
+              const dy = end.y - start.y;
+              const length = Math.sqrt(dx * dx + dy * dy);
+
+              if (length === 0) continue;
+
+              // Unit perpendicular vector
+              const perpX = -dy / length;
+              const perpY = dx / length;
+
+              // Add bounds for each parallel line
+              for (let lineIndex = 0; lineIndex < numLines; lineIndex++) {
+                const offset = (lineIndex - (numLines - 1) / 2) * spacing;
+
+                // Calculate offset points
+                const startX = start.x + perpX * offset;
+                const startY = start.y + perpY * offset;
+                const endX = end.x + perpX * offset;
+                const endY = end.y + perpY * offset;
+
+                const [x1, y1] = applyTransform(startX, startY, transformStack);
+                const [x2, y2] = applyTransform(endX, endY, transformStack);
+
+                addPoint(x1, y1, 'MLINE', entity.handle);
+                addPoint(x2, y2, 'MLINE', entity.handle);
+              }
+            }
+
+            // Add end caps bounds if present
+            if (entity.startCap || entity.endCap) {
+              const firstVertex = entity.vertices[0];
+              const lastVertex = entity.vertices[entity.vertices.length - 1];
+
+              if (firstVertex && entity.startCap && entity.vertices.length > 1) {
+                const secondVertex = entity.vertices[1];
+                const dx = secondVertex.x - firstVertex.x;
+                const dy = secondVertex.y - firstVertex.y;
+                const length = Math.sqrt(dx * dx + dy * dy);
+
+                if (length > 0) {
+                  const perpX = -dy / length;
+                  const perpY = dx / length;
+                  const halfWidth = (numLines - 1) * spacing / 2;
+
+                  const capStart = {
+                    x: firstVertex.x + perpX * halfWidth,
+                    y: firstVertex.y + perpY * halfWidth
+                  };
+                  const capEnd = {
+                    x: firstVertex.x - perpX * halfWidth,
+                    y: firstVertex.y - perpY * halfWidth
+                  };
+
+                  const [cx1, cy1] = applyTransform(capStart.x, capStart.y, transformStack);
+                  const [cx2, cy2] = applyTransform(capEnd.x, capEnd.y, transformStack);
+                  addPoint(cx1, cy1, 'MLINE', entity.handle);
+                  addPoint(cx2, cy2, 'MLINE', entity.handle);
+                }
+              }
+
+              if (lastVertex && entity.endCap && entity.vertices.length > 1) {
+                const secondLastVertex = entity.vertices[entity.vertices.length - 2];
+                const dx = lastVertex.x - secondLastVertex.x;
+                const dy = lastVertex.y - secondLastVertex.y;
+                const length = Math.sqrt(dx * dx + dy * dy);
+
+                if (length > 0) {
+                  const perpX = -dy / length;
+                  const perpY = dx / length;
+                  const halfWidth = (numLines - 1) * spacing / 2;
+
+                  const capStart = {
+                    x: lastVertex.x + perpX * halfWidth,
+                    y: lastVertex.y + perpY * halfWidth
+                  };
+                  const capEnd = {
+                    x: lastVertex.x - perpX * halfWidth,
+                    y: lastVertex.y - perpY * halfWidth
+                  };
+
+                  const [cx1, cy1] = applyTransform(capStart.x, capStart.y, transformStack);
+                  const [cx2, cy2] = applyTransform(capEnd.x, capEnd.y, transformStack);
+                  addPoint(cx1, cy1, 'MLINE', entity.handle);
+                  addPoint(cx2, cy2, 'MLINE', entity.handle);
+                }
+              }
+            }
+          }
+          break;
+
+        case 'ATTDEF':
+          const insertPoint = entity.insertionPoint || entity.position || entity.startPoint;
+          if (insertPoint) {
+            const [x, y] = applyTransform(insertPoint.x, insertPoint.y, transformStack);
+            addPoint(x, y, 'ATTDEF', entity.handle);
+
+            // Add bounds for text width/height approximation
+            const displayText = entity.defaultValue || entity.tag || entity.prompt || 'ATTDEF';
+            const fontSize = (entity.height || 10) * (config.textSizeMultiplier || 0.3);
+            const textWidth = displayText.length * fontSize * 0.6; // Approximate text width
+            const textHeight = fontSize;
+
+            // Add text bounds
+            addPoint(x + textWidth, y + textHeight, 'ATTDEF', entity.handle);
+            addPoint(x - 2, y - textHeight - 2, 'ATTDEF', entity.handle); // Small padding
+
+            // Add bounds for verification indicator if present
+            if (entity.verify || entity.flags & 4) {
+              const indicatorX = x + textWidth + 15; // Extra space for indicator
+              addPoint(indicatorX, y + 10, 'ATTDEF', entity.handle);
+            }
+          }
+          break;
+      }
+    });
+    return tightBounds;
+  };
+
+  const calculateFinalViewBox = (bounds, paddingFactor = 0.02) => {
+    if (!bounds.valid || bounds.minX === Infinity) {
+      console.warn('Invalid bounds, using default viewBox');
+      return "0 0 1000 1000";
+    }
+
+    const width = bounds.maxX - bounds.minX;
+    const height = bounds.maxY - bounds.minY;
+
+    console.log(`Content bounds: width=${width}, height=${height}`);
+    console.log(`Content position: minX=${bounds.minX}, minY=${bounds.minY}, maxX=${bounds.maxX}, maxY=${bounds.maxY}`);
+
+    // Ensure minimum size
+    const minSize = 10;
+    const finalWidth = Math.max(width, minSize);
+    const finalHeight = Math.max(height, minSize);
+
+    // Calculate padding as percentage of content size (much smaller than before)
+    const padding = Math.max(finalWidth, finalHeight) * paddingFactor;
+    console.log(`Applied padding: ${padding} (${paddingFactor * 100}% of content)`);
+
+    // Calculate viewBox coordinates
+    const viewBoxMinX = bounds.minX - padding;
+    const viewBoxMinY = -(bounds.maxY + padding); // Flip Y coordinate
+    const viewBoxWidth = finalWidth + (2 * padding);
+    const viewBoxHeight = finalHeight + (2 * padding);
+
+    const viewBox = `${round(viewBoxMinX)} ${round(viewBoxMinY)} ${round(viewBoxWidth)} ${round(viewBoxHeight)}`;
+
+    console.log(`Final tight viewBox: ${viewBox}`);
+    console.log(`Final dimensions: ${round(viewBoxWidth)} x ${round(viewBoxHeight)}`);
+
+    return viewBox;
+  };
+
   const processedForBounds = new Set();
   const updateBounds = (x, y, entityType = 'unknown', entityHandle = '') => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
@@ -500,8 +870,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return `${round(x)},${round(y)}`;
       });
 
-      // For SOLID entities, we want to fill with color and use stroke for border
-      const solidStroke = stroke.replace(/fill="[^"]*"/, `fill="rgb(${color.r},${color.g},${color.b})"`);
+      const solidStroke = stroke.replace(/fill="[^"]*"/, `fill="rgb(${color},${color},${color})"`);
       return `<polygon points="${points.join(' ')}" ${solidStroke}/>`;
     },
 
@@ -826,6 +1195,53 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     },
   };
 
+  // Calculate optimal display size based on content dimensions
+  function calculateOptimalDisplaySize(bounds) {
+    const contentWidth = Math.abs(bounds.maxX - bounds.minX);
+    const contentHeight = Math.abs(bounds.maxY - bounds.minY);
+    const aspectRatio = contentWidth / contentHeight;
+
+    // Define size categories
+    const sizeCategories = {
+      tiny: { maxDim: 100, containerHeight: 400 },
+      small: { maxDim: 1000, containerHeight: 500 },
+      medium: { maxDim: 10000, containerHeight: 600 },
+      large: { maxDim: 100000, containerHeight: 700 },
+      huge: { maxDim: Infinity, containerHeight: 800 }
+    };
+
+    const maxContentDim = Math.max(contentWidth, contentHeight);
+    let category = 'medium';
+
+    for (const [catName, catData] of Object.entries(sizeCategories)) {
+      if (maxContentDim <= catData.maxDim) {
+        category = catName;
+        break;
+      }
+    }
+
+    const containerHeight = sizeCategories[category].containerHeight;
+
+    // Adjust container height based on aspect ratio
+    let adjustedContainerHeight = containerHeight;
+    if (aspectRatio > 3) {
+      // Very wide drawings (like floor plans)
+      adjustedContainerHeight = Math.min(containerHeight * 0.7, 500);
+    } else if (aspectRatio < 0.3) {
+      // Very tall drawings (like elevations)
+      adjustedContainerHeight = Math.min(containerHeight * 1.3, 900);
+    }
+
+    return {
+      contentWidth: Math.round(contentWidth),
+      contentHeight: Math.round(contentHeight),
+      aspectRatio: Math.round(aspectRatio * 100) / 100,
+      containerHeight: adjustedContainerHeight,
+      category: category,
+      maxContentDim: Math.round(maxContentDim)
+    };
+  }
+
   const generateElement = (e, source, currentTransforms, highlightedEntityHandle) => {
     if (!e?.type) {
       return null;
@@ -1116,13 +1532,25 @@ ${defs.join('\n')}
     const content = [];
 
     if (Array.isArray(db.entities) && db.entities.length > 0) {
+      // Filter out problematic layers before processing
+      const filteredEntities = db.entities.filter(entity => {
+        return entity.layer !== 'G-ANNO-SYMB' &&
+          entity.layer !== 'A-GLAZ-CWMG';
+      });
       console.log(`Processing ${db.entities.length} entities from db.entities`);
+
+      // Temporarily replace db.entities for processing
+      const originalEntities = db.entities;
+      db.entities = filteredEntities;
 
       const analysis = analyzeAllEntities(db.entities);
       console.log('Layer analysis from entities:', analysis.layerCount);
 
       const modelContent = processEntities(db.entities, '*Model_Space', transformStack);
       content.push(...modelContent);
+
+      // Restore original entities
+      db.entities = originalEntities;
     } else {
       console.warn('No db.entities found or empty array');
     }
@@ -1144,25 +1572,12 @@ ${defs.join('\n')}
     }
   }
 
-  // db.entities = db.entities.filter(e => {
-  //   if (e.type !== 'INSERT') return true;
-  //   const pt = e.insertionPoint || e.position;
-  //   if (!pt) return false;
-
-  //   const nearOrigin = Math.abs(pt.x) < 1e-6 && Math.abs(pt.y) < 1e-6;
-  //   const isClutterLayer = e.layer === 'I-FURN';
-
-  //   if (nearOrigin && isClutterLayer) {
-  //     console.warn(`Skipping INSERT at origin on I-FURN: block=${e.blockName}, handle=${e.handle}`);
-  //     return false;
-  //   }
-
-  //   return true;
-  // });
-
-  // --- Outlier filtering for bounds ---
+  // --- Use all points without outlier filtering for bounds ---
   const allPoints = [];
   for (const entity of db.entities || []) {
+    // Skip problematic annotation layers
+    if (entity.layer === '-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') continue;
+
     if (entity.startPoint) allPoints.push([entity.startPoint.x, entity.startPoint.y]);
     if (entity.endPoint) allPoints.push([entity.endPoint.x, entity.endPoint.y]);
     if (entity.center) allPoints.push([entity.center.x, entity.center.y]);
@@ -1172,24 +1587,12 @@ ${defs.join('\n')}
     if (entity.lowerLeft) allPoints.push([entity.lowerLeft.x, entity.lowerLeft.y]);
     if (entity.upperRight) allPoints.push([entity.upperRight.x, entity.upperRight.y]);
   }
-  if (allPoints.length > 10) { // Only filter if enough points
-    const mean = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
-    const xs = allPoints.map(p => p[0]);
-    const ys = allPoints.map(p => p[1]);
-    const cx = mean(xs);
-    const cy = mean(ys);
-    const stdX = Math.sqrt(mean(xs.map(x => (x - cx) ** 2)));
-    const stdY = Math.sqrt(mean(ys.map(y => (y - cy) ** 2)));
-    const filteredPoints = allPoints.filter(([x, y]) =>
-      Math.abs(x - cx) < 3 * stdX && Math.abs(y - cy) < 3 * stdY
-    );
-    if (filteredPoints.length > 0) {
-      bounds.minX = Math.min(...filteredPoints.map(p => p[0]));
-      bounds.maxX = Math.max(...filteredPoints.map(p => p[0]));
-      bounds.minY = Math.min(...filteredPoints.map(p => p[1]));
-      bounds.maxY = Math.max(...filteredPoints.map(p => p[1]));
-      bounds.valid = true;
-    }
+  if (allPoints.length > 0) {
+    bounds.minX = Math.min(...allPoints.map(p => p[0]));
+    bounds.maxX = Math.max(...allPoints.map(p => p[0]));
+    bounds.minY = Math.min(...allPoints.map(p => p[1]));
+    bounds.maxY = Math.max(...allPoints.map(p => p[1]));
+    bounds.valid = true;
   }
 
   validateAndFixBounds();
@@ -1230,78 +1633,193 @@ ${defs.join('\n')}
     console.log('This might indicate coordinate system issues');
   }
 
-  const svgStyles = `
-<style>
-  .dwg-entity:hover {
-    opacity: 0.7 !important;
-    stroke-width: 3 !important;
-  }
-  .deletable-entity {
-    cursor: pointer;
-  }
-  .clickable-entity:hover {
-    stroke: #ff6b6b !important;
-    stroke-width: 4 !important;
-    opacity: 0.8 !important;
-  }
-  .insert-block:hover {
-    stroke: #ff6b6b !important;
-    stroke-width: 3 !important;
-    fill: rgba(255, 107, 107, 0.2) !important;
-  }
-  .highlighted-entity {
-    stroke: red !important;
-    stroke-width: 6 !important;
-    fill: rgba(255, 0, 0, 0.3) !important;
-    animation: pulse-highlight 1s infinite alternate;
-  }
-  .highlighted-entity use {
-    stroke: red !important;
-    stroke-width: 8 !important;
-    fill: rgba(255, 0, 0, 0.4) !important;
-  }
-  g.highlighted-entity {
-    filter: drop-shadow(0 0 15px rgba(255, 0, 0, 0.8)) !important;
-  }
-  
-  @keyframes pulse-highlight {
-    from { opacity: 0.8; }
-    to { opacity: 1; }
-  }
-  
-  /* Entity hover tooltip */
-  .entity-tooltip {
-    position: absolute;
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    padding: 6px 10px;
-    border-radius: 4px;
-    font-size: 11px;
-    pointer-events: none;
-    z-index: 1000;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-  }
-</style>
-`;
+  // const svgStyles = `
+  // <style>
+  //   svg {
+  //     width: 100% !important;
+  //     height: 100% !important;
+  //     max-width: 100%;
+  //     max-height: 100vh;
+  //   } 
+  //   .dwg-entity:hover {
+  //     opacity: 0.7 !important;
+  //     stroke-width: 3 !important;
+  //   }
+  //   .deletable-entity {
+  //     cursor: pointer;
+  //   }
+  //   .clickable-entity:hover {
+  //     stroke: #ff6b6b !important;
+  //     stroke-width: 4 !important;
+  //     opacity: 0.8 !important;
+  //   }
+  //   .insert-block:hover {
+  //     stroke: #ff6b6b !important;
+  //     stroke-width: 3 !important;
+  //     fill: rgba(255, 107, 107, 0.2) !important;
+  //   }
+  //   .highlighted-entity {
+  //     stroke: red !important;
+  //     stroke-width: 6 !important;
+  //     fill: rgba(255, 0, 0, 0.3) !important;
+  //     animation: pulse-highlight 1s infinite alternate;
+  //   }
+  //   .highlighted-entity use {
+  //     stroke: red !important;
+  //     stroke-width: 8 !important;
+  //     fill: rgba(255, 0, 0, 0.4) !important;
+  //   }
+  //   g.highlighted-entity {
+  //     filter: drop-shadow(0 0 15px rgba(255, 0, 0, 0.8)) !important;
+  //   }
 
-  const padding = Math.max(width, height) * 0.1;
-  console.log(`Final calculated padding: ${padding}`);
+  //   @keyframes pulse-highlight {
+  //     from { opacity: 0.8; }
+  //     to { opacity: 1; }
+  //   }
 
-  const viewBoxMinX = bounds.minX - padding;
-  const viewBoxMinY = -(bounds.maxY + padding);
-  const viewBoxWidth = width + (2 * padding);
-  const viewBoxHeight = height + (2 * padding);
+  //   /* Entity hover tooltip */
+  //   .entity-tooltip {
+  //     position: absolute;
+  //     background: rgba(0, 0, 0, 0.8);
+  //     color: white;
+  //     padding: 6px 10px;
+  //     border-radius: 4px;
+  //     font-size: 11px;
+  //     pointer-events: none;
+  //     z-index: 1000;
+  //     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  //   }
+  // </style>
+  // `;
 
-  const viewBox = `${round(viewBoxMinX)} ${round(viewBoxMinY)} ${round(viewBoxWidth)} ${round(viewBoxHeight)}`;
 
-  console.log(`FINAL SVG viewBox: ${viewBox}`);
-  console.log(`FINAL SVG dimensions: ${round(viewBoxWidth)} x ${round(viewBoxHeight)}`);
+  // const padding = Math.max(width, height) * 0.1;
+  // console.log(`Final calculated padding: ${padding}`);
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" style="stroke-linecap:round;stroke-linejoin:round;background:white;width:100%;height:100%">
-   ${svgStyles}
-  ${blockDefs}
-  <g transform="scale(1,-1)">
-    ${svgContent}
-  </g>
-</svg>`;
+  // const viewBoxMinX = bounds.minX - padding;
+  // const viewBoxMinY = -(bounds.maxY + padding);
+  // const viewBoxWidth = width + (2 * padding);
+  // const viewBoxHeight = height + (2 * padding);
+
+  // const viewBox = `${round(viewBoxMinX)} ${round(viewBoxMinY)} ${round(viewBoxWidth)} ${round(viewBoxHeight)}`;
+
+  const enhancedSvgStyles = `
+  <style>
+    .dwg-svg-container {
+      width: 100%;
+      height: var(--container-height, 600px);
+      max-height: 90vh;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f8f9fa;
+      position: relative;
+    }
+
+    .dwg-svg-container svg {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+      transition: all 0.3s ease;
+    }
+
+    .dwg-svg-info {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: monospace;
+    }
+
+    .dwg-entity:hover {
+      opacity: 0.7 !important;
+      stroke-width: 3 !important;
+    }
+    .deletable-entity {
+      cursor: pointer;
+    }
+    .clickable-entity:hover {
+      stroke: #ff6b6b !important;
+      stroke-width: 4 !important;
+      opacity: 0.8 !important;
+    }
+    .insert-block:hover {
+      stroke: #ff6b6b !important;
+      stroke-width: 3 !important;
+      fill: rgba(255, 107, 107, 0.2) !important;
+    }
+    .highlighted-entity {
+      stroke: red !important;
+      stroke-width: 6 !important;
+      fill: rgba(255, 0, 0, 0.3) !important;
+      animation: pulse-highlight 1s infinite alternate;
+    }
+    @keyframes pulse-highlight {
+      from { opacity: 0.8; }
+      to { opacity: 1; }
+    }
+    .entity-tooltip {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      pointer-events: none;
+      z-index: 1000;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+  </style>
+  `;
+
+  console.log('=== CALCULATING TIGHT BOUNDS ===');
+  const tightBounds = calculateTightBounds(db.entities || []);
+
+
+  // Calculate optimal display dimensions based on content
+
+  const displayDimensions = calculateOptimalDisplaySize(tightBounds);
+  console.log('Display dimensions calculated:', displayDimensions);
+
+  // // Use tight bounds for viewBox calculation
+  const finalViewBox = calculateFinalViewBox(tightBounds, 0.25);
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${finalViewBox}" style="stroke-linecap:round;stroke-linejoin:round;background:white;width:100%;height:100%">
+     ${enhancedSvgStyles}
+    ${blockDefs}
+    <g transform="scale(1,-1)">
+      ${svgContent}
+    </g>
+  </svg>`;
 }
+
+// Return SVG with adaptive sizing
+//   return {
+//     svg: `<svg xmlns="http://www.w3.org/2000/svg"
+//            viewBox="${finalViewBox}"
+//            preserveAspectRatio="xMidYMid meet"
+//            data-content-width="${displayDimensions.contentWidth}"
+//            data-content-height="${displayDimensions.contentHeight}"
+//            data-aspect-ratio="${displayDimensions.aspectRatio}"
+//            style="stroke-linecap:round;stroke-linejoin:round;background:white;width:100%;height:100%;">
+//      ${enhancedSvgStyles}
+//     ${blockDefs}
+//     <g transform="scale(1,-1)">
+//       ${svgContent}
+//     </g>
+//   </svg>`,
+//     dimensions: displayDimensions,
+//     bounds: tightBounds,
+//     // For backward compatibility, also return the plain SVG
+//     toString: function () { return this.svg; }
+//   };
+// }
