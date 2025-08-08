@@ -27,7 +27,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   const renderedHandles = new Set();
   const blockIdCounter = { value: 0 };
   const skippedByLayer = new Map();
-  const existingHandles = new Set((db.entities || []).map(e => e.handle));
 
   const config = {
     hideDimensions: false,
@@ -95,10 +94,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     entities.forEach(entity => {
       if (!entity?.type) return;
 
-      // Skip annotation and symbol layers that cause positioning issues
       if (entity.layer === 'G-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') return;
 
-      //     // Apply layer visibility check
       if (entity.layer && !isLayerVisible(entity.layer)) return;
 
       switch (entity.type) {
@@ -612,7 +609,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       updateBounds(x2, y2, 'LINE', e.handle);
 
       let finalStroke = stroke;
-
       return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${finalStroke}/>`;
     },
 
@@ -999,7 +995,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
         // Draw multiple parallel lines
         for (let lineIndex = 0; lineIndex < numLines; lineIndex++) {
-          // Calculate offset from center line
           const offset = (lineIndex - (numLines - 1) / 2) * spacing;
 
           // Calculate offset points
@@ -1017,10 +1012,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
           // Use different stroke styles for different lines if needed
           let lineStroke = stroke;
           if (lineIndex === 0 || lineIndex === numLines - 1) {
-            // Outer lines - solid
             lineStroke = stroke;
           } else {
-            // Inner lines - potentially dashed
             lineStroke = stroke + ' stroke-dasharray="3,3"';
           }
 
@@ -1135,7 +1128,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
       // Add boundary box for preset attributes
       if (e.preset || e.flags & 8) {
-        const textWidth = displayText.length * fontSize * 0.6; // Approximate text width
+        const textWidth = displayText.length * fontSize * 0.6; 
         const textHeight = fontSize;
         const padding = 2;
 
@@ -1195,7 +1188,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     },
   };
 
-  // Calculate optimal display size based on content dimensions
   function calculateOptimalDisplaySize(bounds) {
     const contentWidth = Math.abs(bounds.maxX - bounds.minX);
     const contentHeight = Math.abs(bounds.maxY - bounds.minY);
@@ -1448,7 +1440,6 @@ ${regularElements.join('\n')}
       strokeWidth_final = normalizeStrokeWidth();
     }
 
-    // Add data attributes for identification
     const dataHandle = e.handle ? `data-handle="${e.handle}"` : '';
     const dataLayer = e.layer ? `data-layer="${e.layer}"` : '';
     const dataType = `data-type="INSERT"`;
@@ -1457,7 +1448,6 @@ ${regularElements.join('\n')}
       `class="dwg-entity deletable-entity insert-block highlighted-entity"` :
       `class="dwg-entity deletable-entity insert-block"`;
 
-    // Combine all attributes for the use element, avoiding duplicates
     const useAttributes = `${strokeStyle} ${fillStyle} ${filterStyle}`.trim();
 
     return `<g id="${e.handle}" stroke-width="${strokeWidth_final}" ${dataHandle} ${dataLayer} ${dataType} ${dataBlock} ${entityClass}>
@@ -1532,14 +1522,12 @@ ${defs.join('\n')}
     const content = [];
 
     if (Array.isArray(db.entities) && db.entities.length > 0) {
-      // Filter out problematic layers before processing
       const filteredEntities = db.entities.filter(entity => {
         return entity.layer !== 'G-ANNO-SYMB' &&
           entity.layer !== 'A-GLAZ-CWMG';
       });
       console.log(`Processing ${db.entities.length} entities from db.entities`);
 
-      // Temporarily replace db.entities for processing
       const originalEntities = db.entities;
       db.entities = filteredEntities;
 
@@ -1549,7 +1537,6 @@ ${defs.join('\n')}
       const modelContent = processEntities(db.entities, '*Model_Space', transformStack);
       content.push(...modelContent);
 
-      // Restore original entities
       db.entities = originalEntities;
     } else {
       console.warn('No db.entities found or empty array');
@@ -1572,10 +1559,8 @@ ${defs.join('\n')}
     }
   }
 
-  // --- Use all points without outlier filtering for bounds ---
   const allPoints = [];
   for (const entity of db.entities || []) {
-    // Skip problematic annotation layers
     if (entity.layer === '-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') continue;
 
     if (entity.startPoint) allPoints.push([entity.startPoint.x, entity.startPoint.y]);
@@ -1615,8 +1600,6 @@ ${defs.join('\n')}
     Object.assign(bounds, { minX: 0, minY: 0, maxX: 1000, maxY: 1000 });
   }
 
-  console.log('=== FINAL BOUNDS CALCULATION ===');
-  console.log('Final bounds:', bounds);
   console.log('Total unique entities processed for bounds:', processedForBounds.size);
 
   const width = bounds.maxX - bounds.minX;
@@ -1632,77 +1615,6 @@ ${defs.join('\n')}
     console.warn('⚠️ BOUNDS VERY LARGE!');
     console.log('This might indicate coordinate system issues');
   }
-
-  // const svgStyles = `
-  // <style>
-  //   svg {
-  //     width: 100% !important;
-  //     height: 100% !important;
-  //     max-width: 100%;
-  //     max-height: 100vh;
-  //   } 
-  //   .dwg-entity:hover {
-  //     opacity: 0.7 !important;
-  //     stroke-width: 3 !important;
-  //   }
-  //   .deletable-entity {
-  //     cursor: pointer;
-  //   }
-  //   .clickable-entity:hover {
-  //     stroke: #ff6b6b !important;
-  //     stroke-width: 4 !important;
-  //     opacity: 0.8 !important;
-  //   }
-  //   .insert-block:hover {
-  //     stroke: #ff6b6b !important;
-  //     stroke-width: 3 !important;
-  //     fill: rgba(255, 107, 107, 0.2) !important;
-  //   }
-  //   .highlighted-entity {
-  //     stroke: red !important;
-  //     stroke-width: 6 !important;
-  //     fill: rgba(255, 0, 0, 0.3) !important;
-  //     animation: pulse-highlight 1s infinite alternate;
-  //   }
-  //   .highlighted-entity use {
-  //     stroke: red !important;
-  //     stroke-width: 8 !important;
-  //     fill: rgba(255, 0, 0, 0.4) !important;
-  //   }
-  //   g.highlighted-entity {
-  //     filter: drop-shadow(0 0 15px rgba(255, 0, 0, 0.8)) !important;
-  //   }
-
-  //   @keyframes pulse-highlight {
-  //     from { opacity: 0.8; }
-  //     to { opacity: 1; }
-  //   }
-
-  //   /* Entity hover tooltip */
-  //   .entity-tooltip {
-  //     position: absolute;
-  //     background: rgba(0, 0, 0, 0.8);
-  //     color: white;
-  //     padding: 6px 10px;
-  //     border-radius: 4px;
-  //     font-size: 11px;
-  //     pointer-events: none;
-  //     z-index: 1000;
-  //     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-  //   }
-  // </style>
-  // `;
-
-
-  // const padding = Math.max(width, height) * 0.1;
-  // console.log(`Final calculated padding: ${padding}`);
-
-  // const viewBoxMinX = bounds.minX - padding;
-  // const viewBoxMinY = -(bounds.maxY + padding);
-  // const viewBoxWidth = width + (2 * padding);
-  // const viewBoxHeight = height + (2 * padding);
-
-  // const viewBox = `${round(viewBoxMinX)} ${round(viewBoxMinY)} ${round(viewBoxWidth)} ${round(viewBoxHeight)}`;
 
   const enhancedSvgStyles = `
   <style>
@@ -1784,14 +1696,11 @@ ${defs.join('\n')}
   console.log('=== CALCULATING TIGHT BOUNDS ===');
   const tightBounds = calculateTightBounds(db.entities || []);
 
-
-  // Calculate optimal display dimensions based on content
-
   const displayDimensions = calculateOptimalDisplaySize(tightBounds);
   console.log('Display dimensions calculated:', displayDimensions);
 
-  // // Use tight bounds for viewBox calculation
   const finalViewBox = calculateFinalViewBox(tightBounds, 0.25);
+  console.log("final viewbox dimensions: ", finalViewBox);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${finalViewBox}" style="stroke-linecap:round;stroke-linejoin:round;background:white;width:100%;height:100%">
      ${enhancedSvgStyles}
@@ -1801,25 +1710,3 @@ ${defs.join('\n')}
     </g>
   </svg>`;
 }
-
-// Return SVG with adaptive sizing
-//   return {
-//     svg: `<svg xmlns="http://www.w3.org/2000/svg"
-//            viewBox="${finalViewBox}"
-//            preserveAspectRatio="xMidYMid meet"
-//            data-content-width="${displayDimensions.contentWidth}"
-//            data-content-height="${displayDimensions.contentHeight}"
-//            data-aspect-ratio="${displayDimensions.aspectRatio}"
-//            style="stroke-linecap:round;stroke-linejoin:round;background:white;width:100%;height:100%;">
-//      ${enhancedSvgStyles}
-//     ${blockDefs}
-//     <g transform="scale(1,-1)">
-//       ${svgContent}
-//     </g>
-//   </svg>`,
-//     dimensions: displayDimensions,
-//     bounds: tightBounds,
-//     // For backward compatibility, also return the plain SVG
-//     toString: function () { return this.svg; }
-//   };
-// }

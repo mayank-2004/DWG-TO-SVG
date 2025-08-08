@@ -25,11 +25,16 @@ export default function App() {
   const [showInlineDeleteDialog, setShowInlineDeleteDialog] = useState(false);
   const [inlineDeletePosition, setInlineDeletePosition] = useState({ x: 0, y: 0 });
   const [inlineDeleteEntity, setInlineDeleteEntity] = useState(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectionBox, setSelectionBox] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [showSelectionDialog, setShowSelectionDialog] = useState(false);
+  const [selectedAreaEntities, setSelectedAreaEntities] = useState([]);
 
   const dbRef = useRef(null);
   const svgContainerRef = useRef(null);
 
-  // Helper function to find entity by handle in all locations
   const findEntityByHandle = (handle, db) => {
     if (!db || !handle) {
       console.log('findEntityByHandle: Missing db or handle');
@@ -86,7 +91,6 @@ export default function App() {
     return null;
   };
 
-  // Helper function to remove entity by handle from all locations
   const removeEntityByHandle = (handle, db) => {
     if (!db || !handle) return false;
 
@@ -714,7 +718,6 @@ export default function App() {
     }, 3000);
   };
 
-  // Update getAllEntities function to work with the new helper
   const getAllEntities = () => {
     if (!dbRef.current) return [];
 
@@ -734,6 +737,120 @@ export default function App() {
     return allEntities;
   };
 
+  const getEntitiesInArea = (minX, minY, maxX, maxY) => {
+    if (!dbRef.current) return [];
+
+    const entitiesInArea = [];
+
+    // Check main entities
+    if (dbRef.current.entities && Array.isArray(dbRef.current.entities)) {
+      dbRef.current.entities.forEach(entity => {
+        if (isEntityInArea(entity, minX, minY, maxX, maxY)) {
+          entitiesInArea.push({
+            ...entity,
+            location: 'main',
+            blockName: null
+          });
+        }
+      });
+    }
+
+    // Check block entities
+    if (dbRef.current.tables?.BLOCK_RECORD?.entries) {
+      dbRef.current.tables.BLOCK_RECORD.entries.forEach(block => {
+        if (block.entities && Array.isArray(block.entities)) {
+          block.entities.forEach(entity => {
+            if (isEntityInArea(entity, minX, minY, maxX, maxY)) {
+              entitiesInArea.push({
+                ...entity,
+                location: 'block',
+                blockName: block.name
+              });
+            }
+          });
+        }
+      });
+    }
+
+    return entitiesInArea;
+  };
+
+  const isEntityInArea = (entity, minX, minY, maxX, maxY) => {
+    if (!entity?.type) return false;
+
+    const checkPoint = (x, y) => {
+      return x >= minX && x <= maxX && y >= minY && y <= maxY;
+    };
+
+    switch (entity.type) {
+      case 'LINE':
+        if (entity.startPoint && entity.endPoint) {
+          return checkPoint(entity.startPoint.x, entity.startPoint.y) ||
+            checkPoint(entity.endPoint.x, entity.endPoint.y);
+        }
+        break;
+      case 'CIRCLE':
+        if (entity.center) {
+          return checkPoint(entity.center.x, entity.center.y);
+        }
+        break;
+      case 'ARC':
+        if (entity.center) {
+          return checkPoint(entity.center.x, entity.center.y);
+        }
+        break;
+      case 'TEXT':
+      case 'MTEXT':
+        const textPos = entity.position || entity.insertionPoint || entity.insert;
+        if (textPos) {
+          return checkPoint(textPos.x, textPos.y);
+        }
+        break;
+      case 'INSERT':
+        const insertPos = entity.insertionPoint || entity.position;
+        if (insertPos) {
+          return checkPoint(insertPos.x, insertPos.y);
+        }
+        break;
+      case 'LWPOLYLINE':
+      case 'POLYLINE':
+      case 'POLYGON':
+        if (entity.vertices && Array.isArray(entity.vertices)) {
+          return entity.vertices.some(vertex =>
+            vertex && checkPoint(vertex.x, vertex.y)
+          );
+        }
+        break;
+      default:
+        // For other entity types, check common position properties
+        const pos = entity.position || entity.insertionPoint || entity.center;
+        if (pos) {
+          return checkPoint(pos.x, pos.y);
+        }
+    }
+
+    return false;
+  };
+
+  const svgToWorldCoordinates = (svgX, svgY, svgElement) => {
+    const rect = svgElement.getBoundingClientRect();
+    const viewBox = svgElement.viewBox.baseVal;
+
+    // Calculate relative position within SVG element
+    const relX = (svgX - rect.left) / rect.width;
+    const relY = (svgY - rect.top) / rect.height;
+
+    // Convert to world coordinates using viewBox
+    const worldX = viewBox.x + (relX * viewBox.width);
+    const worldY = viewBox.y + (relY * viewBox.height);
+
+    // Account for the scale(1,-1) transform
+    return {
+      x: worldX,
+      y: -worldY
+    };
+  };
+
   useEffect(() => {
     const attachListeners = () => {
       const svgContainer = svgContainerRef.current;
@@ -745,26 +862,27 @@ export default function App() {
         svgContainer.removeEventListener('mouseover', handleSvgMouseOver);
         svgContainer.removeEventListener('mouseout', handleSvgMouseOut);
 
-        // Check if SVG elements with data-handle attributes are actually rendered
-        const clickableEntities = svgContainer.querySelectorAll('[data-handle]');
-        console.log('Clickable entities found:', clickableEntities.length);
+        // Only attach entity interaction listeners if NOT in selection mode
+        if (!selectionMode) {
+          const clickableEntities = svgContainer.querySelectorAll('[data-handle]');
+          console.log('Clickable entities found:', clickableEntities.length);
 
-        if (clickableEntities.length > 0) {
-          // Add new listeners only if entities are found
-          svgContainer.addEventListener('click', handleSvgClick);
-          svgContainer.addEventListener('mouseover', handleSvgMouseOver);
-          svgContainer.addEventListener('mouseout', handleSvgMouseOut);
-          console.log('Event listeners attached successfully to', clickableEntities.length, 'entities');
-        } else {
-          // If no entities found, try again after a longer delay
-          console.log('No clickable entities found, retrying in 2 seconds...');
-          setTimeout(attachListeners, 4000);
+          if (clickableEntities.length > 0) {
+            // Add new listeners only if entities are found
+            svgContainer.addEventListener('click', handleSvgClick);
+            svgContainer.addEventListener('mouseover', handleSvgMouseOver);
+            svgContainer.addEventListener('mouseout', handleSvgMouseOut);
+            console.log('Event listeners attached successfully to', clickableEntities.length, 'entities');
+          } else {
+            // If no entities found, try again after a longer delay
+            console.log('No clickable entities found, retrying in 2 seconds...');
+            setTimeout(attachListeners, 4000);
+          }
         }
       }
     };
 
     if (svg && !showEditor) {
-      // Add a small delay to ensure SVG DOM is rendered
       const timeout = setTimeout(attachListeners, 4000);
 
       return () => {
@@ -777,9 +895,8 @@ export default function App() {
         }
       };
     }
-  }, [svg, showEditor]);
+  }, [svg, showEditor, selectionMode]);
 
-  // Additional useEffect to ensure listeners are attached when SVG content changes
   useEffect(() => {
     if (svg && !showEditor && svgContainerRef.current) {
       const checkAndAttach = () => {
@@ -820,6 +937,62 @@ export default function App() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showInlineDeleteDialog]);
+
+  const handleSelectionMouseDown = (event) => {
+    if (!selectionMode) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const svgElement = event.currentTarget.querySelector('svg');
+    if (!svgElement) return;
+
+    const worldCoords = svgToWorldCoordinates(event.clientX, event.clientY, svgElement);
+
+    setIsDragging(true);
+    setDragStart(worldCoords);
+    setSelectionBox(null);
+  };
+
+  const handleSelectionMouseMove = (event) => {
+    if (!selectionMode || !isDragging) return;
+
+    event.preventDefault();
+
+    const svgElement = event.currentTarget.querySelector('svg');
+    if (!svgElement) return;
+
+    const worldCoords = svgToWorldCoordinates(event.clientX, event.clientY, svgElement);
+
+    const minX = Math.min(dragStart.x, worldCoords.x);
+    const minY = Math.min(dragStart.y, worldCoords.y);
+    const maxX = Math.max(dragStart.x, worldCoords.x);
+    const maxY = Math.max(dragStart.y, worldCoords.y);
+
+    setSelectionBox({ minX, minY, maxX, maxY });
+  };
+
+  const handleSelectionMouseUp = (event) => {
+    if (!selectionMode || !isDragging) return;
+
+    event.preventDefault();
+
+    setIsDragging(false);
+
+    if (selectionBox) {
+      const entitiesInArea = getEntitiesInArea(
+        selectionBox.minX,
+        selectionBox.minY,
+        selectionBox.maxX,
+        selectionBox.maxY
+      );
+
+      setSelectedAreaEntities(entitiesInArea);
+      setShowSelectionDialog(true);
+    }
+
+    setSelectionBox(null);
+  };
 
   const download = () => {
     if (!svg) return;
@@ -1654,6 +1827,34 @@ export default function App() {
             <span style={{ marginLeft: 8, color: '#333' }}>Zoom: {(zoom * 100).toFixed(0)}%</span>
           </div>
         )}
+        {/* Selection Mode Toggle */}
+        {svg && !isLoading && (
+          <div style={{ marginTop: '15px', display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'center' }}>
+            <button
+              onClick={() => {
+                setSelectionMode(!selectionMode);
+                setSelectionBox(null);
+                setIsDragging(false);
+              }}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: selectionMode ? '#28a745' : '#007bff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: selectionMode ? 'bold' : 'normal'
+              }}
+            >
+              {selectionMode ? 'Exit Selection Mode' : 'Area Selection Mode'}
+            </button>
+            {selectionMode && (
+              <span style={{ fontSize: '0.9em', color: '#666' }}>
+                Click and drag to select an area
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {svg && (
@@ -1669,7 +1870,6 @@ export default function App() {
               borderRadius: "4px",
               padding: "1rem",
               marginTop: "1rem",
-              // maxHeight: '70vh',
               height: '70vh',
               overflow: 'auto',
               backgroundColor: 'white',
@@ -1696,69 +1896,69 @@ export default function App() {
                   </span>
                 )}
               </div>
-              {/* <div
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  minHeight: '400px',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  overflow: 'auto',
-                  position: 'relative'
-                }}
-              > */}
               <div
                 style={{
                   width: '100%',
                   flex: 1,
-                  // overflow: 'auto',
                   position: 'relative',
                   minHeight: 0
                 }}
               >
-                {/* <div
-                  style={{
-                    transform: `scale(${zoom})`,
-                    transformOrigin: 'top left',
-                    transition: 'transform 0.2s',
-                    position: 'relative'
-                  }}
-                > */}
                 <div
                   style={{
                     transform: `scale(${zoom})`,
                     transformOrigin: 'top left',
                     transition: 'transform 0.2s',
                     position: 'relative',
-                    // width: '100%',
-                    // height: '100%',
-                    width: `${100 * zoom}%`, // Scale width with zoom
-                    height: `${100 * zoom}%`, // Scale height with zoom
+                    width: `${100 * zoom}%`,
+                    height: `${100 * zoom}%`,
                     display: 'flex',
                     justifyContent: 'center',
                     alignItems: 'center'
                   }}
                 >
-                  {/* <div
-                    ref={svgContainerRef}
-                    data-svg-container
-                    dangerouslySetInnerHTML={{ __html: svg }}
-                  /> */}
                   <div
                     ref={svgContainerRef}
                     data-svg-container
                     style={{
                       width: '100%',
                       height: '100%',
-                      minWidth: '400px', // Ensure minimum size for small SVGs
+                      minWidth: '400px',
                       minHeight: '400px',
-                      display: 'flex',  
+                      display: 'flex',
                       justifyContent: 'center',
-                      alignItems: 'center'
+                      alignItems: 'center',
+                      cursor: selectionMode ? 'crosshair' : 'default',
+                      position: 'relative'
                     }}
+                    onMouseDown={selectionMode ? handleSelectionMouseDown : undefined}
+                    onMouseMove={selectionMode ? handleSelectionMouseMove : undefined}
+                    onMouseUp={selectionMode ? handleSelectionMouseUp : undefined}
                     dangerouslySetInnerHTML={{ __html: svg }}
                   />
+
+                  {/* Selection Box Overlay */}
+                  {selectionMode && selectionBox && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        pointerEvents: 'none',
+                        zIndex: 1000
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          border: '2px dashed #007bff',
+                          backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                          pointerEvents: 'none'
+                        }}
+                      />
+                    </div>
+                  )}
 
                   {highlightedEntity && (() => {
                     const bounds = createHighlightOverlay(highlightedEntity);
@@ -1806,6 +2006,146 @@ export default function App() {
                     <small style={{ opacity: 0.9 }}>Click to delete</small>
                   </div>
                 )}
+                {/* Selection Results Dialog */}
+                {showSelectionDialog && (
+                  <div style={{
+                    position: 'fixed',
+                    top: 0, left: 0, width: '100vw', height: '100vh',
+                    background: 'rgba(0,0,0,0.5)',
+                    zIndex: 20000,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <div style={{
+                      background: 'white',
+                      padding: '2rem',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+                      maxWidth: '600px',
+                      width: '90%',
+                      maxHeight: '80vh',
+                      overflow: 'auto'
+                    }}>
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '1rem',
+                        borderBottom: '1px solid #eee',
+                        paddingBottom: '1rem'
+                      }}>
+                        <h3 style={{ margin: 0, color: 'black' }}>
+                          Selected Area Analysis
+                        </h3>
+                        <button
+                          style={{
+                            padding: '6px 14px',
+                            backgroundColor: '#6c757d',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => setShowSelectionDialog(false)}
+                        >
+                          Close
+                        </button>
+                      </div>
+
+                      <div style={{
+                        marginBottom: '15px',
+                        padding: '10px',
+                        backgroundColor: '#e8f5e8',
+                        borderRadius: '4px',
+                        color: '#333'
+                      }}>
+                        <strong>Found {selectedAreaEntities.length} entities in selected area</strong>
+                      </div>
+
+                      {selectedAreaEntities.length === 0 ? (
+                        <p style={{ color: '#666', textAlign: 'center', fontStyle: 'italic' }}>
+                          No entities found in the selected area
+                        </p>
+                      ) : (
+                        <div>
+                          {/* Group by layers */}
+                          {(() => {
+                            const layerGroups = selectedAreaEntities.reduce((groups, entity) => {
+                              const layer = entity.layer || 'No Layer';
+                              if (!groups[layer]) groups[layer] = [];
+                              groups[layer].push(entity);
+                              return groups;
+                            }, {});
+
+                            return Object.entries(layerGroups).map(([layer, entities]) => (
+                              <div key={layer} style={{
+                                marginBottom: '15px',
+                                border: '1px solid #ddd',
+                                borderRadius: '4px',
+                                overflow: 'hidden'
+                              }}>
+                                <div style={{
+                                  backgroundColor: '#f8f9fa',
+                                  padding: '10px',
+                                  borderBottom: '1px solid #ddd',
+                                  fontWeight: 'bold',
+                                  color: '#333'
+                                }}>
+                                  Layer: {layer} ({entities.length} entities)
+                                </div>
+                                <div style={{ maxHeight: '200px', overflow: 'auto' }}>
+                                  {entities.map((entity, idx) => (
+                                    <div key={idx} style={{
+                                      padding: '8px 12px',
+                                      borderBottom: '1px solid #eee',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      fontSize: '0.9em'
+                                    }}>
+                                      <span style={{ color: 'black' }}>
+                                        <strong>{entity.type}</strong>
+                                        {entity.handle && <span style={{ color: '#666' }}> (Handle: {entity.handle})</span>}
+                                        <br />
+                                        <small style={{ color: '#999' }}>
+                                          Location: {entity.location}
+                                          {entity.blockName && ` - Block: ${entity.blockName}`}
+                                        </small>
+                                      </span>
+                                      <button
+                                        style={{
+                                          padding: '4px 8px',
+                                          backgroundColor: '#007bff',
+                                          color: 'white',
+                                          border: 'none',
+                                          borderRadius: '3px',
+                                          cursor: 'pointer',
+                                          fontSize: '0.8em'
+                                        }}
+                                        onClick={() => {
+                                          if (entity.handle) {
+                                            setHighlightedEntity(entity.handle);
+                                            if (dbRef.current) {
+                                              const svgText = convertToSvg(dbRef.current, [], visibleLayers, entity.handle);
+                                              setSvg(svgText);
+                                            }
+                                          }
+                                        }}
+                                      >
+                                        Highlight
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ));
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1816,7 +2156,6 @@ export default function App() {
           0% { opacity: 0.3; transform: scale(1); }
           100% { opacity: 0.8; transform: scale(1.02); }
         }
-        
         @keyframes pulse {
           0% { opacity: 1; }
           50% { opacity: 0.5; }
