@@ -29,16 +29,19 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   const skippedByLayer = new Map();
 
   const config = {
-    hideDimensions: false,
-    hideText: false,
+    hideDimensions: true,
+    hideText: true,
     hidePoints: true,
     simplifySplines: true,
     strokeWidth: 0.5,
-    textSizeMultiplier: 0.3
+    textSizeMultiplier: 0.3,
   };
 
-  const round = (num) => Math.round(num * 10000) / 10000;
-  const normalizeStrokeWidth = () => 8;
+  const round = (num) => {
+    if (!Number.isFinite(num)) return 0;
+    return Math.round(num * 1000) / 1000;
+  };
+  const normalizeStrokeWidth = () => 2;
 
   const applyTransform = (x, y, transforms = transformStack) => {
     let px = x;
@@ -79,7 +82,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         console.warn(`Invalid point: (${x}, ${y}) from ${entityType}:${handle}`);
         return;
       }
-      // Filter extreme coordinates
+
       if (Math.abs(x) > 1000000 || Math.abs(y) > 1000000) {
         console.warn(`Extreme coordinate filtered: (${x}, ${y}) from ${entityType}:${handle}`);
         return;
@@ -153,9 +156,30 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
           break;
         case 'INSERT':
           const insertPos = entity.insertionPoint || entity.position;
-          if (insertPos && !(Math.abs(insertPos.x) < 1e-6 && Math.abs(insertPos.y) < 1e-6)) {
+          if (insertPos) {
             const [x, y] = applyTransform(insertPos.x, insertPos.y, transformStack);
             addPoint(x, y, 'INSERT', entity.handle);
+
+            const blockName = entity.blockName || entity.name;
+            const blockEntities = blockDefinitions.get(blockName);
+            if (blockEntities) {
+              const blockTransforms = [...transformStack, {
+                x: insertPos.x,
+                y: insertPos.y,
+                rotation: entity.rotation || 0,
+                scaleX: entity.xScale || entity.scaleX || 1,
+                scaleY: entity.yScale || entity.scaleY || 1
+              }];
+
+              blockEntities.forEach(blockEntity => {
+                if (blockEntity.type === 'LINE' && blockEntity.startPoint && blockEntity.endPoint) {
+                  const [bx1, by1] = applyTransform(blockEntity.startPoint.x, blockEntity.startPoint.y, blockTransforms);
+                  const [bx2, by2] = applyTransform(blockEntity.endPoint.x, blockEntity.endPoint.y, blockTransforms);
+                  addPoint(bx1, by1, 'INSERT-BLOCK', entity.handle);
+                  addPoint(bx2, by2, 'INSERT-BLOCK', entity.handle);
+                }
+              });
+            }
           }
           break;
         case 'ELLIPSE':
@@ -225,7 +249,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
           }
           break;
         case 'DIMENSION':
-          // Handle dimension lines
           if (entity.dimensionLine?.start && entity.dimensionLine?.end) {
             const [x1, y1] = applyTransform(entity.dimensionLine.start.x, entity.dimensionLine.start.y, transformStack);
             const [x2, y2] = applyTransform(entity.dimensionLine.end.x, entity.dimensionLine.end.y, transformStack);
@@ -233,7 +256,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             addPoint(x2, y2, 'DIMENSION', entity.handle);
           }
 
-          // Handle extension lines
           if (Array.isArray(entity.extensionLines)) {
             entity.extensionLines.forEach(line => {
               if (line?.start && line?.end) {
@@ -245,13 +267,11 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             });
           }
 
-          // Handle text position
           if (entity.text && entity.textPosition) {
             const [x, y] = applyTransform(entity.textPosition.x, entity.textPosition.y, transformStack);
             addPoint(x, y, 'DIMENSION', entity.handle);
           }
 
-          // Handle definition points as fallback
           if (entity.defPoint1 && entity.defPoint2) {
             const [x1, y1] = applyTransform(entity.defPoint1.x, entity.defPoint1.y, transformStack);
             const [x2, y2] = applyTransform(entity.defPoint2.x, entity.defPoint2.y, transformStack);
@@ -272,29 +292,23 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             const numLines = entity.numberOfLines || entity.elements?.length || 2;
             const spacing = entity.lineSpacing || 10;
 
-            // Calculate bounds for all parallel lines
             for (let i = 0; i < entity.vertices.length - 1; i++) {
               const start = entity.vertices[i];
               const end = entity.vertices[i + 1];
 
               if (!start || !end) continue;
 
-              // Calculate direction vector
               const dx = end.x - start.x;
               const dy = end.y - start.y;
               const length = Math.sqrt(dx * dx + dy * dy);
 
               if (length === 0) continue;
-
-              // Unit perpendicular vector
               const perpX = -dy / length;
               const perpY = dx / length;
 
-              // Add bounds for each parallel line
               for (let lineIndex = 0; lineIndex < numLines; lineIndex++) {
                 const offset = (lineIndex - (numLines - 1) / 2) * spacing;
 
-                // Calculate offset points
                 const startX = start.x + perpX * offset;
                 const startY = start.y + perpY * offset;
                 const endX = end.x + perpX * offset;
@@ -308,7 +322,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
               }
             }
 
-            // Add end caps bounds if present
             if (entity.startCap || entity.endCap) {
               const firstVertex = entity.vertices[0];
               const lastVertex = entity.vertices[entity.vertices.length - 1];
@@ -376,19 +389,16 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             const [x, y] = applyTransform(insertPoint.x, insertPoint.y, transformStack);
             addPoint(x, y, 'ATTDEF', entity.handle);
 
-            // Add bounds for text width/height approximation
             const displayText = entity.defaultValue || entity.tag || entity.prompt || 'ATTDEF';
             const fontSize = (entity.height || 10) * (config.textSizeMultiplier || 0.3);
-            const textWidth = displayText.length * fontSize * 0.6; // Approximate text width
+            const textWidth = displayText.length * fontSize * 0.6;
             const textHeight = fontSize;
 
-            // Add text bounds
             addPoint(x + textWidth, y + textHeight, 'ATTDEF', entity.handle);
-            addPoint(x - 2, y - textHeight - 2, 'ATTDEF', entity.handle); // Small padding
+            addPoint(x - 2, y - textHeight - 2, 'ATTDEF', entity.handle);
 
-            // Add bounds for verification indicator if present
             if (entity.verify || entity.flags & 4) {
-              const indicatorX = x + textWidth + 15; // Extra space for indicator
+              const indicatorX = x + textWidth + 15;
               addPoint(indicatorX, y + 10, 'ATTDEF', entity.handle);
             }
           }
@@ -410,18 +420,15 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     console.log(`Content bounds: width=${width}, height=${height}`);
     console.log(`Content position: minX=${bounds.minX}, minY=${bounds.minY}, maxX=${bounds.maxX}, maxY=${bounds.maxY}`);
 
-    // Ensure minimum size
     const minSize = 10;
     const finalWidth = Math.max(width, minSize);
     const finalHeight = Math.max(height, minSize);
 
-    // Calculate padding as percentage of content size (much smaller than before)
     const padding = Math.max(finalWidth, finalHeight) * paddingFactor;
     console.log(`Applied padding: ${padding} (${paddingFactor * 100}% of content)`);
 
-    // Calculate viewBox coordinates
     const viewBoxMinX = bounds.minX - padding;
-    const viewBoxMinY = -(bounds.maxY + padding); // Flip Y coordinate
+    const viewBoxMinY = -(bounds.maxY + padding);
     const viewBoxWidth = finalWidth + (2 * padding);
     const viewBoxHeight = finalHeight + (2 * padding);
 
@@ -484,6 +491,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   };
 
   const shouldRenderEntity = (entity, layers = {}) => {
+    if (entity.layer === 'I-FURN') {
+      console.log(`I-FURN entity found: type=${entity.type}, handle=${entity.handle}, visible=${isLayerVisible(entity.layer)}`);
+    }
+
     if (entity.layer && !isLayerVisible(entity.layer)) {
       console.log(`Skipping entity on hidden layer: ${entity.layer} (type: ${entity.type})`);
       return false;
@@ -553,48 +564,37 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     return { r: 0, g: 0, b: 0 };
   };
 
-  const analyzeAllEntities = (entities) => {
-    const typeCount = {};
-    const circularEntities = [];
-    const layerCount = {};
+  // const analyzeAllEntities = (entities) => {
+  //   const typeCount = {};
+  //   const circularEntities = [];
+  //   const layerCount = {};
 
-    entities.forEach((entity, index) => {
-      typeCount[entity.type] = (typeCount[entity.type] || 0) + 1;
+  //   entities.forEach((entity, index) => {
+  //     typeCount[entity.type] = (typeCount[entity.type] || 0) + 1;
 
-      if (entity.layer) {
-        layerCount[entity.layer] = (layerCount[entity.layer] || 0) + 1;
-      }
+  //     if (entity.layer) {
+  //       layerCount[entity.layer] = (layerCount[entity.layer] || 0) + 1;
+  //     }
 
-      if (['CIRCLE', 'ELLIPSE', 'ARC'].includes(entity.type)) {
-        circularEntities.push({
-          index,
-          type: entity.type,
-          layer: entity.layer,
-          center: entity.center,
-          radius: entity.radius,
-          startAngle: entity.startAngle,
-          endAngle: entity.endAngle,
-          majorAxisEndPoint: entity.majorAxisEndPoint,
-          axisRatio: entity.axisRatio,
-          handle: entity.handle
-        });
-      }
-    });
+  //     if (['CIRCLE', 'ELLIPSE', 'ARC'].includes(entity.type)) {
+  //       circularEntities.push({
+  //         index,
+  //         type: entity.type,
+  //         layer: entity.layer,
+  //         center: entity.center,
+  //         radius: entity.radius,
+  //         startAngle: entity.startAngle,
+  //         endAngle: entity.endAngle,
+  //         majorAxisEndPoint: entity.majorAxisEndPoint,
+  //         axisRatio: entity.axisRatio,
+  //         handle: entity.handle
+  //       });
+  //     }
+  //   });
 
 
-    return { typeCount, circularEntities, layerCount };
-  };
-
-  const debugInsertElement = (e, source, currentTransforms) => {
-    const blockName = e.blockName || e.name;
-
-    const blockEntities = blockDefinitions.get(blockName);
-    if (blockEntities) {
-      const circularInBlock = blockEntities.filter(entity =>
-        ['CIRCLE', 'ELLIPSE', 'ARC'].includes(entity.type)
-      );
-    }
-  };
+  //   return { typeCount, circularEntities, layerCount };
+  // };
 
   const entityHandlers = {
     LINE: (e, color, stroke, transforms) => {
@@ -608,8 +608,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       updateBounds(x1, y1, 'LINE', e.handle);
       updateBounds(x2, y2, 'LINE', e.handle);
 
-      let finalStroke = stroke;
-      return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${finalStroke}/>`;
+      return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke}/>`;
     },
 
     ARC: (e, color, stroke, transforms) => {
@@ -620,8 +619,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const endAngle = e.endAngle || 2 * Math.PI;
 
       const angleDiff = Math.abs(endAngle - startAngle);
+      // If it's a full circle, skip it to avoid duplicates with CIRCLE entities
       if (angleDiff >= 2 * Math.PI - 0.001) {
-        console.warn(`ARC is actually a full circle! Converting to circle.`);
+        console.warn(`ARC is actually a full circle! Skipping to avoid duplicates with CIRCLE entities.`);
+        return null;
       }
 
       const sx = center.x + radius * Math.cos(startAngle);
@@ -722,7 +723,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       updateBounds(minX, minY, 'OLE2FRAME', e.handle);
       updateBounds(minX + width, minY + height, 'OLE2FRAME', e.handle);
 
-      // Remove fill="none" from stroke since it's already included, add stroke-dasharray
       const frameStroke = stroke.replace(/fill="[^"]*"\s*/, '') + ' stroke-dasharray="5,5"';
       return `<rect x="${round(minX)}" y="${round(minY)}" width="${round(width)}" height="${round(height)}" ${frameStroke}/>`;
     },
@@ -754,7 +754,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
         if (pathData) {
           pathData += ' Z';
-          // Use the stroke as-is since it already contains the correct fill value
           paths.push(`<path d="${pathData}" ${stroke}/>`);
         }
       }
@@ -769,7 +768,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const [x, y] = applyTransform(pt.x, pt.y, transforms);
       updateBounds(x, y, 'MTEXT', e.handle);
 
-      const fontSize = Math.max((e.height || 12) * config.textSizeMultiplier, 8);
+      const fontSize = Math.max((e.height || 12) * config.textSizeMultiplier, 6);
       const rotation = e.rotation ? ` transform="rotate(${e.rotation * 180 / Math.PI} ${round(x)} ${round(y)}) scale(1,-1)"` : ' transform="scale(1,-1)"';
 
       return `<text x="${round(x)}" y="${round(y)}" font-size="${fontSize}" fill="rgb(${color.r},${color.g},${color.b})"${rotation}>${escapeXml(e.text)}</text>`;
@@ -781,7 +780,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const [x, y] = applyTransform(e.position.x, e.position.y, transforms);
       updateBounds(x, y, 'TEXT', e.handle);
 
-      const fontSize = Math.max((e.height || 12) * config.textSizeMultiplier, 8);
+      const fontSize = Math.max((e.height || 12) * config.textSizeMultiplier, 6);
       const rotation = e.rotation ? ` transform="rotate(${e.rotation * 180 / Math.PI} ${round(x)} ${round(y)}) scale(1,-1)"` : ' transform="scale(1,-1)"';
 
       return `<text x="${round(x)}" y="${round(y)}" font-size="${fontSize}" fill="rgb(${color.r},${color.g},${color.b})"${rotation}>${escapeXml(e.text)}</text>`;
@@ -834,9 +833,13 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       if (config.hidePoints || !e.position) return null;
 
       const [cx, cy] = applyTransform(e.position.x, e.position.y, transforms);
+
       updateBounds(cx, cy, 'POINT', e.handle);
 
-      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="2" fill="rgb(${color.r},${color.g},${color.b})"/>`;
+      const pointSize = Math.max(0.5, config.strokeWidth || 0.5);
+      const pointColor = `rgb(${color.r},${color.g},${color.b})`;
+
+      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${pointSize}" fill="${pointColor}" opacity="0.3" />`;
     },
 
     SPLINE: (e, color, stroke, transforms) => {
@@ -884,12 +887,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     },
 
     LEADER: (e, color, stroke, transforms) => {
-      // Leaders need at least 2 vertices to form a line
       if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
 
       const items = [];
-
-      // Draw the leader line(s) connecting all vertices
       for (let i = 0; i < e.vertices.length - 1; i++) {
         const start = e.vertices[i];
         const end = e.vertices[i + 1];
@@ -905,7 +905,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke}/>`);
       }
 
-      // Add arrowhead at the first vertex (start of leader)
       if (e.hasArrowhead !== false && e.vertices.length >= 2) {
         const start = e.vertices[0];
         const second = e.vertices[1];
@@ -914,7 +913,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
           const [x1, y1] = applyTransform(start.x, start.y, transforms);
           const [x2, y2] = applyTransform(second.x, second.y, transforms);
 
-          // Calculate arrow direction
           const dx = x2 - x1;
           const dy = y2 - y1;
           const length = Math.sqrt(dx * dx + dy * dy);
@@ -923,24 +921,19 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             const unitX = dx / length;
             const unitY = dy / length;
 
-            // Arrow size (adjust as needed)
             const arrowSize = 8;
 
-            // Calculate arrowhead points
             const arrowX1 = x1 + arrowSize * (-unitX + unitY * 0.5);
             const arrowY1 = y1 + arrowSize * (-unitY - unitX * 0.5);
             const arrowX2 = x1 + arrowSize * (-unitX - unitY * 0.5);
             const arrowY2 = y1 + arrowSize * (-unitY + unitX * 0.5);
 
-            // Create arrowhead as a filled triangle
             const arrowStroke = stroke.replace(/fill="[^"]*"/, `fill="rgb(${color.r},${color.g},${color.b})"`);
             const arrowPoints = `${round(x1)},${round(y1)} ${round(arrowX1)},${round(arrowY1)} ${round(arrowX2)},${round(arrowY2)}`;
             items.push(`<polygon points="${arrowPoints}" ${arrowStroke}/>`);
           }
         }
       }
-
-      // Add text annotation if present
       if (!config.hideText && e.text && (e.textPosition || e.annotationOffset)) {
         const textPos = e.textPosition || e.annotationOffset;
         if (textPos) {
@@ -954,7 +947,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         }
       }
 
-      // Fallback: if no vertices but has startPoint and endPoint
       if (items.length === 0 && e.startPoint && e.endPoint) {
         const [x1, y1] = applyTransform(e.startPoint.x, e.startPoint.y, transforms);
         const [x2, y2] = applyTransform(e.endPoint.x, e.endPoint.y, transforms);
@@ -973,31 +965,26 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
       const items = [];
       const numLines = e.numberOfLines || e.elements?.length || 2;
-      const spacing = e.lineSpacing || 10; // Default spacing between parallel lines
+      const spacing = e.lineSpacing || 10;
 
-      // Calculate perpendicular direction for offset lines
       for (let i = 0; i < e.vertices.length - 1; i++) {
         const start = e.vertices[i];
         const end = e.vertices[i + 1];
 
         if (!start || !end) continue;
 
-        // Calculate direction vector
         const dx = end.x - start.x;
         const dy = end.y - start.y;
         const length = Math.sqrt(dx * dx + dy * dy);
 
         if (length === 0) continue;
 
-        // Unit perpendicular vector
         const perpX = -dy / length;
         const perpY = dx / length;
 
-        // Draw multiple parallel lines
         for (let lineIndex = 0; lineIndex < numLines; lineIndex++) {
           const offset = (lineIndex - (numLines - 1) / 2) * spacing;
 
-          // Calculate offset points
           const startX = start.x + perpX * offset;
           const startY = start.y + perpY * offset;
           const endX = end.x + perpX * offset;
@@ -1009,7 +996,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
           updateBounds(x1, y1, 'MLINE', e.handle);
           updateBounds(x2, y2, 'MLINE', e.handle);
 
-          // Use different stroke styles for different lines if needed
           let lineStroke = stroke;
           if (lineIndex === 0 || lineIndex === numLines - 1) {
             lineStroke = stroke;
@@ -1021,7 +1007,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         }
       }
 
-      // Add end caps if specified
       if (e.startCap || e.endCap) {
         const firstVertex = e.vertices[0];
         const lastVertex = e.vertices[e.vertices.length - 1];
@@ -1095,40 +1080,33 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const [x, y] = applyTransform(insertPoint.x, insertPoint.y, transforms);
       updateBounds(x, y, 'ATTDEF', e.handle);
 
-      // Display text (tag, prompt, or default value)
       const displayText = e.defaultValue || e.tag || e.prompt || 'ATTDEF';
       const fontSize = Math.max((e.height || 10) * config.textSizeMultiplier, 8);
 
-      // Handle text rotation
       const rotation = e.rotation || e.rotationAngle || 0;
       const rotationTransform = rotation !== 0 ?
         ` transform="rotate(${round(rotation * 180 / Math.PI)} ${round(x)} ${round(y)}) scale(1,-1)"` :
         ' transform="scale(1,-1)"';
 
-      // Handle text alignment
       let textAnchor = 'start';
       if (e.horizontalAlignment === 1) textAnchor = 'middle';
       else if (e.horizontalAlignment === 2) textAnchor = 'end';
 
-      // Main attribute text
       items.push(`<text x="${round(x)}" y="${round(y)}" font-size="${fontSize}" fill="rgb(${color.r},${color.g},${color.b})" text-anchor="${textAnchor}"${rotationTransform}>${escapeXml(displayText)}</text>`);
 
-      // Add attribute tag label if different from display text
       if (e.tag && e.tag !== displayText) {
         const tagY = y - fontSize - 2;
         items.push(`<text x="${round(x)}" y="${round(tagY)}" font-size="${Math.max(fontSize * 0.7, 6)}" fill="rgb(${Math.max(color.r - 50, 0)},${Math.max(color.g - 50, 0)},${Math.max(color.b - 50, 0)})" text-anchor="${textAnchor}" transform="scale(1,-1)">${escapeXml(e.tag)}</text>`);
         updateBounds(x, tagY, 'ATTDEF', e.handle);
       }
 
-      // Add visual indicator for invisible attributes
       if (e.invisible || e.flags & 1) {
         const indicatorSize = fontSize * 0.3;
         items.push(`<rect x="${round(x - indicatorSize)}" y="${round(y - indicatorSize)}" width="${round(indicatorSize * 2)}" height="${round(indicatorSize * 2)}" fill="none" stroke="rgb(${color.r},${color.g},${color.b})" stroke-width="0.5" stroke-dasharray="2,2"/>`);
       }
 
-      // Add boundary box for preset attributes
       if (e.preset || e.flags & 8) {
-        const textWidth = displayText.length * fontSize * 0.6; 
+        const textWidth = displayText.length * fontSize * 0.6;
         const textHeight = fontSize;
         const padding = 2;
 
@@ -1136,7 +1114,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         updateBounds(x + textWidth + padding, y + padding, 'ATTDEF', e.handle);
       }
 
-      // Add verification indicator for verify attributes
       if (e.verify || e.flags & 4) {
         const indicatorX = x + displayText.length * fontSize * 0.6 + 5;
         items.push(`<text x="${round(indicatorX)}" y="${round(y)}" font-size="${Math.max(fontSize * 0.8, 6)}" fill="orange" transform="scale(1,-1)">✓</text>`);
@@ -1148,7 +1125,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
     INSERT: (e, color, stroke, transforms) => {
       const blockName = e.blockName || e.name;
-      if (!blockName) return null;
+      if (!blockName) {
+        console.warn('INSERT entity missing blockName:', e);
+        return null;
+      }
 
       const blockEntities = blockDefinitions.get(blockName);
       if (!blockEntities || !blockEntities.some(be => be?.type && entityHandlers[be.type])) {
@@ -1156,6 +1136,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       }
 
       const insertPoint = e.insertionPoint || e.position;
+
+      console.log(`Processing INSERT: ${blockName} at (${insertPoint.x}, ${insertPoint.y}) on layer ${e.layer}`);
+
       let xScale = e.xScale ?? e.scaleX ?? e.scale?.x ?? 1;
       let yScale = e.yScale ?? e.scaleY ?? e.scale?.y ?? 1;
       const rotation = e.rotation ?? e.rotationAngle ?? 0;
@@ -1167,6 +1150,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const rotate = rotation !== 0 ? ` rotate(${round(rotation * 180 / Math.PI)})` : '';
       const scale = (xScale !== 1 || yScale !== 1) ? ` scale(${round(xScale)},${round(yScale)})` : '';
       const transformAttr = `${translate}${rotate}${scale}`;
+
+      updateBounds(insertPoint.x, insertPoint.y, 'INSERT', e.handle);
 
       const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
 
@@ -1193,7 +1178,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     const contentHeight = Math.abs(bounds.maxY - bounds.minY);
     const aspectRatio = contentWidth / contentHeight;
 
-    // Define size categories
     const sizeCategories = {
       tiny: { maxDim: 100, containerHeight: 400 },
       small: { maxDim: 1000, containerHeight: 500 },
@@ -1214,13 +1198,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
     const containerHeight = sizeCategories[category].containerHeight;
 
-    // Adjust container height based on aspect ratio
     let adjustedContainerHeight = containerHeight;
     if (aspectRatio > 3) {
-      // Very wide drawings (like floor plans)
       adjustedContainerHeight = Math.min(containerHeight * 0.7, 500);
     } else if (aspectRatio < 0.3) {
-      // Very tall drawings (like elevations)
       adjustedContainerHeight = Math.min(containerHeight * 1.3, 900);
     }
 
@@ -1254,7 +1235,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     ) {
       if (e.type !== 'DIMENSION') {
         console.warn(`ENTITY AT ORIGIN: type=${e.type}, source=${source}, handle=${e.handle}, layer=${e.layer}`);
-        return null;
       }
     }
 
@@ -1390,10 +1370,9 @@ ${regularElements.join('\n')}
     }, {}) || {};
 
     if (!shouldRenderEntity(e, layerInfo)) {
+      // console.log(`INSERT entity filtered out by shouldRenderEntity: ${blockName} on layer ${e.layer}`);
       return null;
     }
-
-    debugInsertElement(e, source, currentTransforms);
 
     const blockEntities = blockDefinitions.get(blockName);
     if (!blockEntities || !Array.isArray(blockEntities)) {
@@ -1402,10 +1381,6 @@ ${regularElements.join('\n')}
     }
 
     const insertPoint = e.insertionPoint || e.position;
-    if (!insertPoint || Math.abs(insertPoint.x) < 1e-6 && Math.abs(insertPoint.y) < 1e-6) {
-      console.warn(`Skipping INSERT at origin or missing insertion point: block=${blockName}, handle=${e.handle}, layer=${e.layer}`);
-      return null;
-    }
 
     let xScale = e.xScale ?? e.scaleX ?? e.scale?.x ?? 1;
     let yScale = e.yScale ?? e.scaleY ?? e.scale?.y ?? 1;
@@ -1423,7 +1398,7 @@ ${regularElements.join('\n')}
     const scaleTransform = (xScale !== 1 || yScale !== 1) ? ` scale(${round(xScale)},${round(yScale)})` : '';
     const transformAttr = `${translateTransform}${rotateTransform}${scaleTransform}`;
 
-    updateBounds(insertPoint.x, insertPoint.y);
+    updateBounds(insertPoint.x, insertPoint.y, 'INSERT', e.handle);
 
     const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
 
@@ -1450,7 +1425,7 @@ ${regularElements.join('\n')}
 
     const useAttributes = `${strokeStyle} ${fillStyle} ${filterStyle}`.trim();
 
-    return `<g id="${e.handle}" stroke-width="${strokeWidth_final}" ${dataHandle} ${dataLayer} ${dataType} ${dataBlock} ${entityClass}>
+    return `<g id="${e.handle || groupId}" stroke-width="${strokeWidth_final}" ${dataHandle} ${dataLayer} ${dataType} ${dataBlock} ${entityClass}>
   <use href="#${escapeXml(blockName)}" transform="${transformAttr}" ${useAttributes} />
 </g>`;
   };
@@ -1523,18 +1498,33 @@ ${defs.join('\n')}
 
     if (Array.isArray(db.entities) && db.entities.length > 0) {
       const filteredEntities = db.entities.filter(entity => {
-        return entity.layer !== 'G-ANNO-SYMB' &&
-          entity.layer !== 'A-GLAZ-CWMG';
+        // return entity.layer !== 'G-ANNO-SYMB' &&
+        //   entity.layer !== 'A-GLAZ-CWMG';
+        // Existing filters
+        if (entity.layer === 'G-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') {
+          return false;
+        }
+
+        // Skip ARC entities that are actually full circles to prevent duplicates
+        if (entity.type === 'ARC' && entity.startAngle !== undefined && entity.endAngle !== undefined) {
+          const angleDiff = Math.abs(entity.endAngle - entity.startAngle);
+          if (angleDiff >= 2 * Math.PI - 0.001) {
+            console.log(`Filtering out full-circle ARC entity: ${entity.handle}`);
+            return false;
+          }
+        }
+
+        return true;
       });
       console.log(`Processing ${db.entities.length} entities from db.entities`);
 
       const originalEntities = db.entities;
       db.entities = filteredEntities;
 
-      const analysis = analyzeAllEntities(db.entities);
-      console.log('Layer analysis from entities:', analysis.layerCount);
+      // const analysis = analyzeAllEntities(db.entities);
+      // console.log('Layer analysis from entities:', analysis.layerCount);
 
-      const modelContent = processEntities(db.entities, '*Model_Space', transformStack);
+      const modelContent = processEntities(filteredEntities, '*Model_Space', transformStack);
       content.push(...modelContent);
 
       db.entities = originalEntities;
@@ -1587,8 +1577,6 @@ ${defs.join('\n')}
   }
 
   console.log(`Final processed ${processedElements} elements`);
-  console.log('Entity stats:', Object.fromEntries(entityStats));
-  console.log('Final bounds:', bounds);
   console.log('Layer visibility summary:', {
     visibleLayers: visibleLayers,
     totalSkippedLayers: skippedByLayer.size,
@@ -1601,20 +1589,6 @@ ${defs.join('\n')}
   }
 
   console.log('Total unique entities processed for bounds:', processedForBounds.size);
-
-  const width = bounds.maxX - bounds.minX;
-  const height = bounds.maxY - bounds.minY;
-  console.log(`Calculated width: ${width}, height: ${height}`);
-
-  if (width < 1 || height < 1) {
-    console.error('⚠️ BOUNDS TOO SMALL!');
-    console.log('This suggests entities are not being processed correctly or coordinates are very small');
-  }
-
-  if (width > 100000 || height > 100000) {
-    console.warn('⚠️ BOUNDS VERY LARGE!');
-    console.log('This might indicate coordinate system issues');
-  }
 
   const enhancedSvgStyles = `
   <style>
@@ -1693,13 +1667,12 @@ ${defs.join('\n')}
   </style>
   `;
 
-  console.log('=== CALCULATING TIGHT BOUNDS ===');
   const tightBounds = calculateTightBounds(db.entities || []);
 
   const displayDimensions = calculateOptimalDisplaySize(tightBounds);
   console.log('Display dimensions calculated:', displayDimensions);
 
-  const finalViewBox = calculateFinalViewBox(tightBounds, 0.25);
+  const finalViewBox = calculateFinalViewBox(tightBounds, 0.1);
   console.log("final viewbox dimensions: ", finalViewBox);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${finalViewBox}" style="stroke-linecap:round;stroke-linejoin:round;background:white;width:100%;height:100%">

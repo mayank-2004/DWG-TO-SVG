@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Dwg_File_Type, LibreDwg } from '@mlightcad/libredwg-web';
 import { convertToSvg } from './utils/convert2svg';
 import SVGEditor from './components/SVGEditor';
@@ -1043,7 +1043,7 @@ export default function App() {
 
   return (
     <div style={{ margin: "2rem", fontFamily: "sans-serif", maxWidth: '1200px' }}>
-      <h1>DWG → SVG Viewer & Editor</h1>
+      <h1>DWG → SVG Editor</h1>
 
       <div style={{
         marginBottom: '20px',
@@ -1710,7 +1710,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* Small arrow pointing down to the entity */}
             <div style={{
               position: 'absolute',
               bottom: '-8px',
@@ -1727,21 +1726,6 @@ export default function App() {
 
         {svg && !isLoading && (
           <div style={{ marginTop: '15px' }}>
-            <button
-              onClick={() => setShowEditor(!showEditor)}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: showEditor ? '#28a745' : '#007bff',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                marginRight: '10px'
-              }}
-            >
-              {showEditor ? 'View Mode' : 'Edit Mode'}
-            </button>
-
             <button
               onClick={download}
               style={{
@@ -1788,7 +1772,6 @@ export default function App() {
           </div>
         )}
 
-        {/* --- Zoom Controls --- */}
         {svg && !isLoading && (
           <div style={{ marginTop: '15px', display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'center' }}>
             <button
@@ -1827,7 +1810,7 @@ export default function App() {
             <span style={{ marginLeft: 8, color: '#333' }}>Zoom: {(zoom * 100).toFixed(0)}%</span>
           </div>
         )}
-        {/* Selection Mode Toggle */}
+
         {svg && !isLoading && (
           <div style={{ marginTop: '15px', display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'center' }}>
             <button
@@ -1937,7 +1920,6 @@ export default function App() {
                     dangerouslySetInnerHTML={{ __html: svg }}
                   />
 
-                  {/* Selection Box Overlay */}
                   {selectionMode && selectionBox && (
                     <div
                       style={{
@@ -2006,7 +1988,6 @@ export default function App() {
                     <small style={{ opacity: 0.9 }}>Click to delete</small>
                   </div>
                 )}
-                {/* Selection Results Dialog */}
                 {showSelectionDialog && (
                   <div style={{
                     position: 'fixed',
@@ -2069,7 +2050,6 @@ export default function App() {
                         </p>
                       ) : (
                         <div>
-                          {/* Group by layers */}
                           {(() => {
                             const layerGroups = selectedAreaEntities.reduce((groups, entity) => {
                               const layer = entity.layer || 'No Layer';
