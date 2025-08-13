@@ -41,7 +41,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     if (!Number.isFinite(num)) return 0;
     return Math.round(num * 1000) / 1000;
   };
-  const normalizeStrokeWidth = () => 2;
+  const normalizeStrokeWidth = () => 10;
 
   const applyTransform = (x, y, transforms = transformStack) => {
     let px = x;
@@ -101,6 +101,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
       if (entity.layer && !isLayerVisible(entity.layer)) return;
 
+      // Skip unwanted circular entities in bounds calculation
+      if (isUnwantedCircularEntity(entity)) return;
+
       switch (entity.type) {
         case 'LINE':
           if (entity.startPoint && entity.endPoint) {
@@ -110,30 +113,31 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             addPoint(x2, y2, 'LINE', entity.handle);
           }
           break;
-        case 'CIRCLE':
-          if (entity.center && entity.radius) {
-            const [cx, cy] = applyTransform(entity.center.x, entity.center.y, transformStack);
-            addPoint(cx - entity.radius, cy - entity.radius, 'CIRCLE', entity.handle);
-            addPoint(cx + entity.radius, cy + entity.radius, 'CIRCLE', entity.handle);
-          }
-          break;
-        case 'ARC':
-          if (entity.center && entity.radius) {
-            const startAngle = entity.startAngle || 0;
-            const endAngle = entity.endAngle || 2 * Math.PI;
-            const sx = entity.center.x + entity.radius * Math.cos(startAngle);
-            const sy = entity.center.y + entity.radius * Math.sin(startAngle);
-            const ex = entity.center.x + entity.radius * Math.cos(endAngle);
-            const ey = entity.center.y + entity.radius * Math.sin(endAngle);
-            const [x1, y1] = applyTransform(sx, sy, transformStack);
-            const [x2, y2] = applyTransform(ex, ey, transformStack);
-            addPoint(x1, y1, 'ARC', entity.handle);
-            addPoint(x2, y2, 'ARC', entity.handle);
-            const [cx, cy] = applyTransform(entity.center.x, entity.center.y, transformStack);
-            addPoint(cx - entity.radius, cy - entity.radius, 'ARC', entity.handle);
-            addPoint(cx + entity.radius, cy + entity.radius, 'ARC', entity.handle);
-          }
-          break;
+        // case 'CIRCLE':
+        //   if (entity.center && entity.radius) {
+        //     const [cx, cy] = applyTransform(entity.center.x, entity.center.y, transformStack);
+        //     addPoint(cx - entity.radius, cy - entity.radius, 'CIRCLE', entity.handle);
+        //     addPoint(cx + entity.radius, cy + entity.radius, 'CIRCLE', entity.handle);
+        //   }
+        //   break;
+        // case 'ARC':
+        // if (entity.center && entity.radius) {
+        //   const startAngle = entity.startAngle || 0;
+        //   const endAngle = entity.endAngle || 2 * Math.PI;
+        //   const sx = entity.center.x + entity.radius * Math.cos(startAngle);
+        //   const sy = entity.center.y + entity.radius * Math.sin(startAngle);
+        //   const ex = entity.center.x + entity.radius * Math.cos(endAngle);
+        //   const ey = entity.center.y + entity.radius * Math.sin(endAngle);
+        //   const [x1, y1] = applyTransform(sx, sy, transformStack);
+        //   const [x2, y2] = applyTransform(ex, ey, transformStack);
+        //   addPoint(x1, y1, 'ARC', entity.handle);
+        //   addPoint(x2, y2, 'ARC', entity.handle);
+        //   const [cx, cy] = applyTransform(entity.center.x, entity.center.y, transformStack);
+        //   addPoint(cx - entity.radius, cy - entity.radius, 'ARC', entity.handle);
+        //   addPoint(cx + entity.radius, cy + entity.radius, 'ARC', entity.handle);
+        // }
+        // break;
+
         case 'LWPOLYLINE':
         case 'POLYLINE':
         case 'POLYGON':
@@ -182,15 +186,15 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             }
           }
           break;
-        case 'ELLIPSE':
-          if (entity.center && entity.majorAxisEndPoint) {
-            const rx = Math.sqrt(entity.majorAxisEndPoint.x ** 2 + entity.majorAxisEndPoint.y ** 2);
-            const ry = rx * (entity.axisRatio || 1);
-            const [cx, cy] = applyTransform(entity.center.x, entity.center.y, transformStack);
-            addPoint(cx - rx, cy - ry, 'ELLIPSE', entity.handle);
-            addPoint(cx + rx, cy + ry, 'ELLIPSE', entity.handle);
-          }
-          break;
+        // case 'ELLIPSE':
+        //   if (entity.center && entity.majorAxisEndPoint) {
+        //     const rx = Math.sqrt(entity.majorAxisEndPoint.x ** 2 + entity.majorAxisEndPoint.y ** 2);
+        //     const ry = rx * (entity.axisRatio || 1);
+        //     const [cx, cy] = applyTransform(entity.center.x, entity.center.y, transformStack);
+        //     addPoint(cx - rx, cy - ry, 'ELLIPSE', entity.handle);
+        //     addPoint(cx + rx, cy + ry, 'ELLIPSE', entity.handle);
+        //   }
+        //   break;
         case 'OLE2FRAME':
           if (entity.lowerLeft && entity.upperRight) {
             const [x1, y1] = applyTransform(entity.lowerLeft.x, entity.lowerLeft.y, transformStack);
@@ -491,8 +495,20 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   };
 
   const shouldRenderEntity = (entity, layers = {}) => {
-    if (entity.layer === 'I-FURN') {
-      console.log(`I-FURN entity found: type=${entity.type}, handle=${entity.handle}, visible=${isLayerVisible(entity.layer)}`);
+    // Skip circular entities from annotation and symbol layers
+    if (['CIRCLE', 'ARC', 'ELLIPSE'].includes(entity.type)) {
+      const problematicLayers = [
+        'G-ANNO-SYMB', 'A-GLAZ-CWMG', 'DEFPOINTS', 'Dims', 'DIMENSIONS',
+        'TEXT', 'ANNOTATION', 'SYMBOLS', 'TITLE', 'BORDER', 'VIEWPORT',
+        'XREF', 'BLOCKS', 'HATCH', 'PATTERN'
+      ];
+
+      if (entity.layer && problematicLayers.some(layer =>
+        entity.layer.toUpperCase().includes(layer.toUpperCase())
+      )) {
+        console.log(`Filtering out ${entity.type} from annotation layer: ${entity.layer}`);
+        return false;
+      }
     }
 
     if (entity.layer && !isLayerVisible(entity.layer)) {
@@ -520,6 +536,46 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     return true;
   };
 
+  // 2. Add a function to identify and filter unwanted circular entities
+  const isUnwantedCircularEntity = (entity) => {
+    if (!['CIRCLE', 'ARC', 'ELLIPSE'].includes(entity.type)) {
+      return false;
+    }
+
+    // Filter out very large circles that are likely viewport boundaries or construction geometry
+    if (entity.type === 'CIRCLE' && entity.radius > 1000) {
+      console.log(`Filtering out large circle with radius: ${entity.radius}`);
+      return true;
+    }
+
+    // Filter out circles at origin (0,0) which are often construction geometry
+    if (entity.center && entity.center.x === 0 && entity.center.y === 0) {
+      console.log(`Filtering out circular entity at origin`);
+      return true;
+    }
+
+    // Filter out circles that are part of dimension or annotation blocks
+    const annotationLayers = [
+      'DEFPOINTS', 'Dims', 'DIMENSIONS', 'TEXT', 'ANNOTATION', 'SYMBOLS',
+      'TITLE', 'BORDER', 'VIEWPORT', 'XREF', 'BLOCKS'
+    ];
+
+    if (entity.layer && annotationLayers.some(layer =>
+      entity.layer.toUpperCase().includes(layer.toUpperCase())
+    )) {
+      console.log(`Filtering out ${entity.type} from annotation layer: ${entity.layer}`);
+      return true;
+    }
+
+    // Filter out very small circles that might be point markers
+    if (entity.type === 'CIRCLE' && entity.radius < 0.5) {
+      console.log(`Filtering out tiny circle with radius: ${entity.radius}`);
+      return true;
+    }
+
+    return false;
+  };
+
   const escapeXml = (text) => String(text).replace(/[&<>"']/g, (match) => xmlEscapeMap.get(match));
 
   const blockDefinitions = new Map();
@@ -531,70 +587,98 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     }
   }
 
+  // const getEntityColor = (entity, layers = {}) => {
+  //   if (entity.colorIndex === 256 && entity.layer && layers[entity.layer]) {
+  //     const layerColor = layers[entity.layer].color;
+  //     if (layerColor) return layerColor;
+  //   }
+
+  //   if (entity.color && typeof entity.color === 'object') {
+  //     return entity.color;
+  //   }
+
+  //   if (entity.colorIndex !== undefined && entity.colorIndex !== 256) {
+  //     const colorPalette = [
+  //       { r: 0, g: 0, b: 0 },
+  //       { r: 255, g: 0, b: 0 },
+  //       { r: 255, g: 255, b: 0 },
+  //       { r: 0, g: 255, b: 0 },
+  //       { r: 0, g: 255, b: 255 },
+  //       { r: 0, g: 0, b: 255 },
+  //       { r: 255, g: 0, b: 255 },
+  //       { r: 0, g: 0, b: 0 },
+  //       { r: 128, g: 128, b: 128 },
+  //       { r: 192, g: 192, b: 192 }
+  //     ];
+  //     return colorPalette[entity.colorIndex] || { r: 0, g: 0, b: 0 };
+  //   }
+
+  //   if (entity.layer && layers[entity.layer]?.color) {
+  //     return layers[entity.layer].color;
+  //   }
+
+  //   return { r: 0, g: 0, b: 0 };
+  // };
   const getEntityColor = (entity, layers = {}) => {
-    if (entity.colorIndex === 256 && entity.layer && layers[entity.layer]) {
-      const layerColor = layers[entity.layer].color;
-      if (layerColor) return layerColor;
+    // Handle layer-specific colors first
+    if (entity.layer && layers[entity.layer]) {
+      const layerInfo = layers[entity.layer];
+      if (layerInfo.color && typeof layerInfo.color === 'object') {
+        return layerInfo.color;
+      }
+      // Handle layer color index
+      if (layerInfo.colorIndex !== undefined && layerInfo.colorIndex !== 256) {
+        const colorPalette = [
+          { r: 0, g: 0, b: 0 },      // 0 - Black
+          { r: 255, g: 0, b: 0 },    // 1 - Red  
+          { r: 255, g: 255, b: 0 },  // 2 - Yellow
+          { r: 0, g: 255, b: 0 },    // 3 - Green
+          { r: 0, g: 255, b: 255 },  // 4 - Cyan
+          { r: 0, g: 0, b: 255 },    // 5 - Blue
+          { r: 255, g: 0, b: 255 },  // 6 - Magenta
+          { r: 255, g: 255, b: 255 },// 7 - White
+          { r: 128, g: 128, b: 128 },// 8 - Gray
+          { r: 192, g: 192, b: 192 },// 9 - Light Gray
+          { r: 255, g: 127, b: 0 },  // 10 - Orange
+          { r: 127, g: 255, b: 127 },// 11 - Light Green
+          { r: 127, g: 127, b: 255 },// 12 - Light Blue
+          { r: 255, g: 127, b: 127 },// 13 - Light Red
+          { r: 255, g: 255, b: 127 },// 14 - Light Yellow
+        ];
+        return colorPalette[layerInfo.colorIndex] || { r: 0, g: 0, b: 0 };
+      }
     }
 
+    // Handle entity-specific color
     if (entity.color && typeof entity.color === 'object') {
       return entity.color;
     }
 
-    if (entity.colorIndex !== undefined && entity.colorIndex !== 256) {
+    // Handle entity color index (ByLayer = 256, ByBlock = 0)
+    if (entity.colorIndex !== undefined && entity.colorIndex !== 256 && entity.colorIndex !== 0) {
       const colorPalette = [
-        { r: 0, g: 0, b: 0 },
-        { r: 255, g: 0, b: 0 },
-        { r: 255, g: 255, b: 0 },
-        { r: 0, g: 255, b: 0 },
-        { r: 0, g: 255, b: 255 },
-        { r: 0, g: 0, b: 255 },
-        { r: 255, g: 0, b: 255 },
-        { r: 0, g: 0, b: 0 },
-        { r: 128, g: 128, b: 128 },
-        { r: 192, g: 192, b: 192 }
+        { r: 0, g: 0, b: 0 },      // 0 - Black
+        { r: 255, g: 0, b: 0 },    // 1 - Red  
+        { r: 255, g: 255, b: 0 },  // 2 - Yellow
+        { r: 0, g: 255, b: 0 },    // 3 - Green
+        { r: 0, g: 255, b: 255 },  // 4 - Cyan
+        { r: 0, g: 0, b: 255 },    // 5 - Blue
+        { r: 255, g: 0, b: 255 },  // 6 - Magenta
+        { r: 255, g: 255, b: 255 },// 7 - White
+        { r: 128, g: 128, b: 128 },// 8 - Gray
+        { r: 192, g: 192, b: 192 },// 9 - Light Gray
+        { r: 255, g: 127, b: 0 },  // 10 - Orange
+        { r: 127, g: 255, b: 127 },// 11 - Light Green
+        { r: 127, g: 127, b: 255 },// 12 - Light Blue
+        { r: 255, g: 127, b: 127 },// 13 - Light Red
+        { r: 255, g: 255, b: 127 },// 14 - Light Yellow
       ];
       return colorPalette[entity.colorIndex] || { r: 0, g: 0, b: 0 };
     }
 
-    if (entity.layer && layers[entity.layer]?.color) {
-      return layers[entity.layer].color;
-    }
-
+    // Default to black for lines, but use none fill for shapes
     return { r: 0, g: 0, b: 0 };
   };
-
-  // const analyzeAllEntities = (entities) => {
-  //   const typeCount = {};
-  //   const circularEntities = [];
-  //   const layerCount = {};
-
-  //   entities.forEach((entity, index) => {
-  //     typeCount[entity.type] = (typeCount[entity.type] || 0) + 1;
-
-  //     if (entity.layer) {
-  //       layerCount[entity.layer] = (layerCount[entity.layer] || 0) + 1;
-  //     }
-
-  //     if (['CIRCLE', 'ELLIPSE', 'ARC'].includes(entity.type)) {
-  //       circularEntities.push({
-  //         index,
-  //         type: entity.type,
-  //         layer: entity.layer,
-  //         center: entity.center,
-  //         radius: entity.radius,
-  //         startAngle: entity.startAngle,
-  //         endAngle: entity.endAngle,
-  //         majorAxisEndPoint: entity.majorAxisEndPoint,
-  //         axisRatio: entity.axisRatio,
-  //         handle: entity.handle
-  //       });
-  //     }
-  //   });
-
-
-  //   return { typeCount, circularEntities, layerCount };
-  // };
 
   const entityHandlers = {
     LINE: (e, color, stroke, transforms) => {
@@ -611,66 +695,75 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke}/>`;
     },
 
-    ARC: (e, color, stroke, transforms) => {
-      if (!e.center || !Number.isFinite(e.radius)) return null;
+    // ARC: (e, color, stroke, transforms) => {
+    //   if (!e.center || !Number.isFinite(e.radius)) return null;
 
-      const { center, radius } = e;
-      const startAngle = e.startAngle || 0;
-      const endAngle = e.endAngle || 2 * Math.PI;
+    //   const { center, radius } = e;
+    //   const startAngle = e.startAngle || 0;
+    //   const endAngle = e.endAngle || 2 * Math.PI;
 
-      const angleDiff = Math.abs(endAngle - startAngle);
-      // If it's a full circle, skip it to avoid duplicates with CIRCLE entities
-      if (angleDiff >= 2 * Math.PI - 0.001) {
-        console.warn(`ARC is actually a full circle! Skipping to avoid duplicates with CIRCLE entities.`);
-        return null;
-      }
+    //   // Check if this is actually a full circle (skip if so to avoid duplicates)
+    //   const angleDiff = Math.abs(endAngle - startAngle);
+    //   if (angleDiff >= 2 * Math.PI - 0.001) {
+    //     console.log(`Skipping full-circle ARC entity: ${e.handle} (angle diff: ${angleDiff})`);
+    //     return null;
+    //   }
 
-      const sx = center.x + radius * Math.cos(startAngle);
-      const sy = center.y + radius * Math.sin(startAngle);
-      const ex = center.x + radius * Math.cos(endAngle);
-      const ey = center.y + radius * Math.sin(endAngle);
+    //   const sx = center.x + radius * Math.cos(startAngle);
+    //   const sy = center.y + radius * Math.sin(startAngle);
+    //   const ex = center.x + radius * Math.cos(endAngle);
+    //   const ey = center.y + radius * Math.sin(endAngle);
 
-      const [x1, y1] = applyTransform(sx, sy, transforms);
-      const [x2, y2] = applyTransform(ex, ey, transforms);
+    //   const [x1, y1] = applyTransform(sx, sy, transforms);
+    //   const [x2, y2] = applyTransform(ex, ey, transforms);
 
-      updateBounds(x1, y1, 'ARC', e.handle);
-      updateBounds(x2, y2, 'ARC', e.handle);
+    //   updateBounds(x1, y1, 'ARC', e.handle);
+    //   updateBounds(x2, y2, 'ARC', e.handle);
 
-      const [cx, cy] = applyTransform(center.x, center.y, transforms);
-      updateBounds(cx - radius, cy - radius, 'ARC', e.handle);
-      updateBounds(cx + radius, cy + radius, 'ARC', e.handle);
+    //   const [cx, cy] = applyTransform(center.x, center.y, transforms);
+    //   updateBounds(cx - radius, cy - radius, 'ARC', e.handle);
+    //   updateBounds(cx + radius, cy + radius, 'ARC', e.handle);
 
-      const largeArc = angleDiff > Math.PI ? 1 : 0;
-      const sweepFlag = endAngle > startAngle ? 0 : 1;
+    //   const largeArc = angleDiff > Math.PI ? 1 : 0;
+    //   const sweepFlag = endAngle > startAngle ? 0 : 1;
 
-      return `<path d="M ${round(x1)} ${round(y1)} A ${round(radius)} ${round(radius)} 0 ${largeArc} ${sweepFlag} ${round(x2)} ${round(y2)}" ${stroke}/>`;
-    },
+    //   // Use stroke-only rendering for arcs, no fill
+    //   const arcStroke = stroke.replace(/fill="[^"]*"/, 'fill="none"');
+    //   return `<path d="M ${round(x1)} ${round(y1)} A ${round(radius)} ${round(radius)} 0 ${largeArc} ${sweepFlag} ${round(x2)} ${round(y2)}" ${arcStroke}/>`;
+    //   // return `<path d="M ${round(x1)} ${round(y1)} A ${round(radius)} ${round(radius)} 0 ${largeArc} ${sweepFlag} ${round(x2)} ${round(y2)}" ${stroke}/>`;
+    // },
 
-    CIRCLE: (e, color, stroke, transforms) => {
-      if (!e.center || !Number.isFinite(e.radius)) return null;
+    // CIRCLE: (e, color, stroke, transforms) => {
+    //   if (!e.center || !Number.isFinite(e.radius)) return null;
 
-      const [cx, cy] = applyTransform(e.center.x, e.center.y, transforms);
+    //   const [cx, cy] = applyTransform(e.center.x, e.center.y, transforms);
 
-      updateBounds(cx - e.radius, cy - e.radius, 'CIRCLE', e.handle);
-      updateBounds(cx + e.radius, cy + e.radius, 'CIRCLE', e.handle);
+    //   updateBounds(cx - e.radius, cy - e.radius, 'CIRCLE', e.handle);
+    //   updateBounds(cx + e.radius, cy + e.radius, 'CIRCLE', e.handle);
 
-      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(e.radius)}" ${stroke}/>`;
-    },
+    //   // Use stroke-only rendering for circles, no fill
+    //   const circleStroke = stroke.replace(/fill="[^"]*"/, 'fill="none"');
+    //   return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(e.radius)}" ${circleStroke}/>`;
+    //   // return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(e.radius)}" ${stroke}/>`;
+    // },
 
-    ELLIPSE: (e, color, stroke, transforms) => {
-      if (!e.center || !e.majorAxisEndPoint) return null;
+    // ELLIPSE: (e, color, stroke, transforms) => {
+    //   if (!e.center || !e.majorAxisEndPoint) return null;
 
-      const rx = Math.sqrt(e.majorAxisEndPoint.x ** 2 + e.majorAxisEndPoint.y ** 2);
-      const ry = rx * (e.axisRatio || 1);
+    //   const rx = Math.sqrt(e.majorAxisEndPoint.x ** 2 + e.majorAxisEndPoint.y ** 2);
+    //   const ry = rx * (e.axisRatio || 1);
 
-      const [cx, cy] = applyTransform(e.center.x, e.center.y, transforms);
-      const angle = Math.atan2(e.majorAxisEndPoint.y, e.majorAxisEndPoint.x) * 180 / Math.PI;
+    //   const [cx, cy] = applyTransform(e.center.x, e.center.y, transforms);
+    //   const angle = Math.atan2(e.majorAxisEndPoint.y, e.majorAxisEndPoint.x) * 180 / Math.PI;
 
-      updateBounds(cx - rx, cy - ry, 'ELLIPSE', e.handle);
-      updateBounds(cx + rx, cy + ry, 'ELLIPSE', e.handle);
+    //   updateBounds(cx - rx, cy - ry, 'ELLIPSE', e.handle);
+    //   updateBounds(cx + rx, cy + ry, 'ELLIPSE', e.handle);
 
-      return `<ellipse cx="${round(cx)}" cy="${round(cy)}" rx="${round(rx)}" ry="${round(ry)}" transform="rotate(${round(angle)} ${round(cx)} ${round(cy)})" ${stroke}/>`;
-    },
+    //   // Use stroke-only rendering for ellipses, no fill
+    //   const ellipseStroke = stroke.replace(/fill="[^"]*"/, 'fill="none"');
+    //   return `<ellipse cx="${round(cx)}" cy="${round(cy)}" rx="${round(rx)}" ry="${round(ry)}" transform="rotate(${round(angle)} ${round(cx)} ${round(cy)})" ${ellipseStroke}/>`;
+    //   // return `<ellipse cx="${round(cx)}" cy="${round(cy)}" rx="${round(rx)}" ry="${round(ry)}" transform="rotate(${round(angle)} ${round(cx)} ${round(cy)})" ${stroke}/>`;
+    // },
 
     LWPOLYLINE: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
@@ -1163,13 +1256,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       }
 
       const dataHandle = e.handle ? `data-handle="${e.handle}"` : '';
-      const dataLayer = e.layer ? `data-layer="${e.layer}"` : '';
-      const dataType = `data-type="INSERT"`;
-      const dataBlock = `data-block="${blockName}"`;
       const entityClass = `class="dwg-entity deletable-entity insert-block"`;
-      const hoverStyle = `style="cursor: pointer; transition: all 0.2s;"`;
 
-      return `<use href="#${escapeXml(blockName)}" transform="${transformAttr}" ${useAttributes} ${dataHandle} ${dataLayer} ${dataType} ${dataBlock} ${entityClass} ${hoverStyle} />`;
+      return `<use href="#${escapeXml(blockName)}" transform="${transformAttr}" ${useAttributes} ${dataHandle} ${entityClass} />`;
     },
   };
 
@@ -1257,38 +1346,41 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
       const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
 
-      let strokeColor, strokeWidth_final, fillColor, strokeDashArray, strokeOpacity;
+      let strokeColor, strokeWidth_final, fillColor, strokeDashArray;
 
       if (isHighlighted) {
         strokeColor = '#FF0000';
         strokeWidth_final = '15';
-        fillColor = e.type === 'HATCH' ? 'rgba(255, 0, 0, 0.3)' : 'none';
+        fillColor = 'rgba(255, 0, 0, 0.3)';
         strokeDashArray = '8,4';
-        strokeOpacity = '1';
       } else {
         strokeColor = `rgb(${color.r},${color.g},${color.b})`;
         strokeWidth_final = strokeWidth;
-        fillColor = e.type === 'HATCH' ? 'rgba(0,0,0,0.2)' : 'none';
+        // Different fill strategies based on entity type
+        if (['CIRCLE', 'ELLIPSE', 'ARC'].includes(e.type)) {
+          fillColor = 'none'; // Never fill circular entities
+        } else if (['POLYGON', 'SOLID', '3DFACE', 'HATCH'].includes(e.type)) {
+          fillColor = `rgba(${color.r},${color.g},${color.b},0.1)`; // Light fill for closed shapes
+        } else {
+          fillColor = 'none'; // No fill for lines and other entities
+        }
+
         strokeDashArray = 'none';
-        strokeOpacity = '0.8';
       }
 
-      const stroke = `stroke="${strokeColor}" stroke-width="${strokeWidth_final}" fill="${fillColor}" stroke-dasharray="${strokeDashArray}" stroke-opacity="${strokeOpacity}"`;
+      const stroke = `stroke="${strokeColor}" stroke-width="${strokeWidth_final}" fill="${fillColor}" stroke-dasharray="${strokeDashArray}"`;
 
       const result = handler(e, color, stroke, currentTransforms);
       if (result && e.handle) {
         const dataHandle = `data-handle="${e.handle}"`;
-        const dataLayer = e.layer ? `data-layer="${e.layer}"` : '';
-        const dataType = `data-type="${e.type}"`;
         const highlightClass = isHighlighted ? 'highlighted-entity' : 'dwg-entity';
         const entityClass = `class="${highlightClass} deletable-entity clickable-entity"`;
-        const clickAttributes = `style="cursor: pointer; transition: opacity 0.2s;"`;
 
         if (!result.includes('data-handle="')) {
           if (result.startsWith('<g ') || result.startsWith('<g>')) {
             const insertPos = result.indexOf('>');
             const updatedResult = result.slice(0, insertPos) +
-              ` ${dataHandle} ${dataLayer} ${dataType} ${entityClass} ${clickAttributes}` +
+              ` ${dataHandle} ${entityClass}` +
               result.slice(insertPos);
             if (updatedResult) processedElements++;
             return updatedResult;
@@ -1297,7 +1389,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             if (tagMatch) {
               const insertPos = result.indexOf(' ') > 0 ? result.indexOf(' ') : result.indexOf('>');
               const updatedResult = result.slice(0, insertPos) +
-                ` ${dataHandle} ${dataLayer} ${dataType} ${entityClass} ${clickAttributes}` +
+                ` ${dataHandle} ${entityClass}` +
                 result.slice(insertPos);
               if (updatedResult) processedElements++;
               return updatedResult;
@@ -1402,30 +1494,25 @@ ${regularElements.join('\n')}
 
     const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
 
-    let strokeStyle, fillStyle, filterStyle, strokeWidth_final;
+    let strokeStyle, fillStyle, strokeWidth_final;
     if (isHighlighted) {
       strokeStyle = 'stroke="red"';
       fillStyle = 'fill="rgba(255, 0, 0, 1)"';
-      filterStyle = 'style="filter: drop-shadow(0 0 10px red);"';
       strokeWidth_final = '10';
     } else {
       strokeStyle = 'stroke="rgb(0,0,0)"';
       fillStyle = 'fill="none"';
-      filterStyle = '';
       strokeWidth_final = normalizeStrokeWidth();
     }
 
     const dataHandle = e.handle ? `data-handle="${e.handle}"` : '';
-    const dataLayer = e.layer ? `data-layer="${e.layer}"` : '';
-    const dataType = `data-type="INSERT"`;
-    const dataBlock = `data-block="${blockName}"`;
     const entityClass = isHighlighted ?
       `class="dwg-entity deletable-entity insert-block highlighted-entity"` :
       `class="dwg-entity deletable-entity insert-block"`;
 
-    const useAttributes = `${strokeStyle} ${fillStyle} ${filterStyle}`.trim();
+    const useAttributes = `${strokeStyle} ${fillStyle}`.trim();
 
-    return `<g id="${e.handle || groupId}" stroke-width="${strokeWidth_final}" ${dataHandle} ${dataLayer} ${dataType} ${dataBlock} ${entityClass}>
+    return `<g id="${e.handle || groupId}" stroke-width="${strokeWidth_final}" ${dataHandle} ${entityClass}>
   <use href="#${escapeXml(blockName)}" transform="${transformAttr}" ${useAttributes} />
 </g>`;
   };
@@ -1440,6 +1527,12 @@ ${regularElements.join('\n')}
       for (const entity of blockEntities) {
         if (!entity?.type) continue;
 
+        // Skip unwanted circular entities in blocks
+        if (isUnwantedCircularEntity(entity)) {
+          console.log(`Skipping ${entity.type} in block ${blockName}`);
+          continue;
+        }
+
         const element = generateElement(entity, `Block_${blockName}`, [], highlightedEntityHandle);
         if (element) {
           blockContent.push(element);
@@ -1448,7 +1541,7 @@ ${regularElements.join('\n')}
 
       if (blockContent.length > 0) {
         defs.push(`  <g id="${escapeXml(blockName)}">
-${blockContent.map(content => `    ${content}`).join('\n')}
+${blockContent.map(content => ` ${content}`).join('\n')}
   </g>`);
       }
     }
@@ -1495,14 +1588,27 @@ ${defs.join('\n')}
 
   const generateSVGContent = () => {
     const content = [];
+    const processedHandles = new Set();
 
     if (Array.isArray(db.entities) && db.entities.length > 0) {
       const filteredEntities = db.entities.filter(entity => {
-        // return entity.layer !== 'G-ANNO-SYMB' &&
-        //   entity.layer !== 'A-GLAZ-CWMG';
-        // Existing filters
         if (entity.layer === 'G-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') {
           return false;
+        }
+
+        // Skip unwanted circular entities
+        if (isUnwantedCircularEntity(entity)) {
+          return false;
+        }
+
+        // Skip duplicate handles
+        if (entity.handle && processedHandles.has(entity.handle)) {
+          console.log(`Skipping duplicate handle: ${entity.handle}`);
+          return false;
+        }
+
+        if (entity.handle) {
+          processedHandles.add(entity.handle);
         }
 
         // Skip ARC entities that are actually full circles to prevent duplicates
@@ -1516,18 +1622,15 @@ ${defs.join('\n')}
 
         return true;
       });
-      console.log(`Processing ${db.entities.length} entities from db.entities`);
 
-      const originalEntities = db.entities;
-      db.entities = filteredEntities;
+      console.log(`Processing ${filteredEntities.length} entities (filtered from ${db.entities.length})`);
+      console.log(`Filtered out ${db.entities.length - filteredEntities.length} unwanted entities`);
 
-      // const analysis = analyzeAllEntities(db.entities);
-      // console.log('Layer analysis from entities:', analysis.layerCount);
+      // const originalEntities = db.entities;
+      // db.entities = filteredEntities;
 
       const modelContent = processEntities(filteredEntities, '*Model_Space', transformStack);
       content.push(...modelContent);
-
-      db.entities = originalEntities;
     } else {
       console.warn('No db.entities found or empty array');
     }
