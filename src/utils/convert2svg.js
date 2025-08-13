@@ -536,7 +536,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     return true;
   };
 
-  // 2. Add a function to identify and filter unwanted circular entities
   const isUnwantedCircularEntity = (entity) => {
     if (!['CIRCLE', 'ARC', 'ELLIPSE'].includes(entity.type)) {
       return false;
@@ -587,38 +586,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     }
   }
 
-  // const getEntityColor = (entity, layers = {}) => {
-  //   if (entity.colorIndex === 256 && entity.layer && layers[entity.layer]) {
-  //     const layerColor = layers[entity.layer].color;
-  //     if (layerColor) return layerColor;
-  //   }
-
-  //   if (entity.color && typeof entity.color === 'object') {
-  //     return entity.color;
-  //   }
-
-  //   if (entity.colorIndex !== undefined && entity.colorIndex !== 256) {
-  //     const colorPalette = [
-  //       { r: 0, g: 0, b: 0 },
-  //       { r: 255, g: 0, b: 0 },
-  //       { r: 255, g: 255, b: 0 },
-  //       { r: 0, g: 255, b: 0 },
-  //       { r: 0, g: 255, b: 255 },
-  //       { r: 0, g: 0, b: 255 },
-  //       { r: 255, g: 0, b: 255 },
-  //       { r: 0, g: 0, b: 0 },
-  //       { r: 128, g: 128, b: 128 },
-  //       { r: 192, g: 192, b: 192 }
-  //     ];
-  //     return colorPalette[entity.colorIndex] || { r: 0, g: 0, b: 0 };
-  //   }
-
-  //   if (entity.layer && layers[entity.layer]?.color) {
-  //     return layers[entity.layer].color;
-  //   }
-
-  //   return { r: 0, g: 0, b: 0 };
-  // };
   const getEntityColor = (entity, layers = {}) => {
     // Handle layer-specific colors first
     if (entity.layer && layers[entity.layer]) {
