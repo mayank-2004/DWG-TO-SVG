@@ -1749,7 +1749,7 @@ ${defs.join('\n')}
   const fit = computeFitTransform(tightBounds, targetWidth, targetHeight, 0.02);
   console.log('Fit-to-viewbox transform:', fit);
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${targetWidth} ${targetHeight}"
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${targetWidth} ${targetHeight}">
     ${enhancedSvgStyles}
     ${blockDefs}
     <g transform="${fit.transform}">

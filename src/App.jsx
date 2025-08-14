@@ -2131,7 +2131,7 @@ export default function App() {
           )}
         </div>
       )}
-      <style>{`
+      {/* <style>{`
         @keyframes highlight-pulse {
           0% { opacity: 0.3; transform: scale(1); }
           100% { opacity: 0.8; transform: scale(1.02); }
@@ -2141,7 +2141,7 @@ export default function App() {
           50% { opacity: 0.5; }
           100% { opacity: 1; }
         }
-      `}</style>
+      `}</style> */}
     </div>
   );
 }
