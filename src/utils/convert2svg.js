@@ -1749,11 +1749,20 @@ ${defs.join('\n')}
   const fit = computeFitTransform(tightBounds, targetWidth, targetHeight, 0.02);
   console.log('Fit-to-viewbox transform:', fit);
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${targetWidth} ${targetHeight}">
+  let svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${targetWidth} ${targetHeight}">
     ${enhancedSvgStyles}
     ${blockDefs}
     <g transform="${fit.transform}">
       ${svgContent}
     </g>
   </svg>`;
+
+  // Remove excessive whitespace & comments, and trim decimals to 3 places
+  svgString = svgString
+    .replace(/>\s+</g, '><')          // Remove whitespace between tags
+    .replace(/\s{2,}/g, ' ')          // Collapse multiple spaces
+    .replace(/<!--.*?-->/g, '')       // Remove comments
+    .replace(/(\d+\.\d{3})\d+/g, '$1'); // Limit decimals
+
+  return svgString;
 }
