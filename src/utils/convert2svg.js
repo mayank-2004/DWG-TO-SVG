@@ -412,36 +412,37 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     return tightBounds;
   };
 
-  const calculateFinalViewBox = (bounds, paddingFactor = 0.02) => {
-    if (!bounds.valid || bounds.minX === Infinity) {
-      console.warn('Invalid bounds, using default viewBox');
-      return "0 0 1000 1000";
-    }
+  const computeFitTransform = (bounds, targetW = 1200, targetH = 640, padding = 0.02) => {
+    const contentW = bounds.maxX - bounds.minX;
+    const contentH = bounds.maxY - bounds.minY;
 
-    const width = bounds.maxX - bounds.minX;
-    const height = bounds.maxY - bounds.minY;
+    // Add padding in model units
+    const padX = contentW * padding;
+    const padY = contentH * padding;
 
-    console.log(`Content bounds: width=${width}, height=${height}`);
-    console.log(`Content position: minX=${bounds.minX}, minY=${bounds.minY}, maxX=${bounds.maxX}, maxY=${bounds.maxY}`);
+    const paddedMinX = bounds.minX - padX;
+    const paddedMaxX = bounds.maxX + padX;
+    const paddedMinY = bounds.minY - padY;
+    const paddedMaxY = bounds.maxY + padY;
 
-    const minSize = 10;
-    const finalWidth = Math.max(width, minSize);
-    const finalHeight = Math.max(height, minSize);
+    const paddedW = paddedMaxX - paddedMinX;
+    const paddedH = paddedMaxY - paddedMinY;
 
-    const padding = Math.max(finalWidth, finalHeight) * paddingFactor;
-    console.log(`Applied padding: ${padding} (${paddingFactor * 100}% of content)`);
+    // Determine uniform scale to fit inside target box
+    const scale = Math.min(targetW / paddedW, targetH / paddedH);
 
-    const viewBoxMinX = bounds.minX - padding;
-    const viewBoxMinY = -(bounds.maxY + padding);
-    const viewBoxWidth = finalWidth + (2 * padding);
-    const viewBoxHeight = finalHeight + (2 * padding);
+    // Centering offsets in target pixel space
+    const offsetX = (targetW - paddedW * scale) / 2;
+    const offsetY = (targetH - paddedH * scale) / 2;
 
-    const viewBox = `${round(viewBoxMinX)} ${round(viewBoxMinY)} ${round(viewBoxWidth)} ${round(viewBoxHeight)}`;
+    // We flip Y with scale(s, -s) and then move origin so that (paddedMinX, paddedMaxY) maps to (offsetX, offsetY)
+    // Because with scaleY=-s the y=0 line is at the top and positive goes down.
+    const innerTranslateX = -paddedMinX;
+    const innerTranslateY = -paddedMaxY;
 
-    console.log(`Final tight viewBox: ${viewBox}`);
-    console.log(`Final dimensions: ${round(viewBoxWidth)} x ${round(viewBoxHeight)}`);
+    const transform = `translate(${round(offsetX)}, ${round(offsetY)}) scale(${scale}, ${-scale}) translate(${round(innerTranslateX)}, ${round(innerTranslateY)})`;
 
-    return viewBox;
+    return { scale, offsetX, offsetY, innerTranslateX, innerTranslateY, targetW, targetH, transform };
   };
 
   const processedForBounds = new Set();
@@ -1742,13 +1743,16 @@ ${defs.join('\n')}
   const displayDimensions = calculateOptimalDisplaySize(tightBounds);
   console.log('Display dimensions calculated:', displayDimensions);
 
-  const finalViewBox = calculateFinalViewBox(tightBounds, 0.1);
-  console.log("final viewbox dimensions: ", finalViewBox);
+  const targetWidth = 1200;
+  const targetHeight = 640;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${finalViewBox}" style="stroke-linecap:round;stroke-linejoin:round;background:white;width:100%;height:100%">
-     ${enhancedSvgStyles}
+  const fit = computeFitTransform(tightBounds, targetWidth, targetHeight, 0.02);
+  console.log('Fit-to-viewbox transform:', fit);
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${targetWidth} ${targetHeight}"
+    ${enhancedSvgStyles}
     ${blockDefs}
-    <g transform="scale(1,-1)">
+    <g transform="${fit.transform}">
       ${svgContent}
     </g>
   </svg>`;
