@@ -7,6 +7,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   }
 
   const shouldShowAllLayers = !visibleLayers || !Array.isArray(visibleLayers);
+  const isSingleLayerMode = Array.isArray(visibleLayers) && visibleLayers.length === 1;
 
   console.log('Layer visibility control:', {
     visibleLayers,
@@ -483,7 +484,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     }
 
     if (!layerName) {
-      return true;
+      // When not showing all layers, entities without a layer should be hidden
+      return false;
     }
 
     const isVisible = visibleLayers.includes(layerName);
@@ -495,7 +497,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     return isVisible;
   };
 
-  const shouldRenderEntity = (entity, layers = {}) => {
+  const shouldRenderEntity = (entity, layers = {}, effectiveLayerOverride = null) => {
+    const effectiveLayer = effectiveLayerOverride ?? entity.layer;
     // Skip circular entities from annotation and symbol layers
     if (['CIRCLE', 'ARC', 'ELLIPSE'].includes(entity.type)) {
       const problematicLayers = [
@@ -504,20 +507,20 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         'XREF', 'BLOCKS', 'HATCH', 'PATTERN'
       ];
 
-      if (entity.layer && problematicLayers.some(layer =>
-        entity.layer.toUpperCase().includes(layer.toUpperCase())
+      if (effectiveLayer && problematicLayers.some(layer =>
+        effectiveLayer.toUpperCase().includes(layer.toUpperCase())
       )) {
-        console.log(`Filtering out ${entity.type} from annotation layer: ${entity.layer}`);
+        console.log(`Filtering out ${entity.type} from annotation layer: ${effectiveLayer}`);
         return false;
       }
     }
 
-    if (entity.layer && !isLayerVisible(entity.layer)) {
-      console.log(`Skipping entity on hidden layer: ${entity.layer} (type: ${entity.type})`);
+    if (!isLayerVisible(effectiveLayer)) {
+      console.log(`Skipping entity on hidden layer: ${effectiveLayer} (type: ${entity.type})`);
       return false;
     }
 
-    const layerInfo = layers[entity.layer];
+    const layerInfo = layers[effectiveLayer];
     if (layerInfo) {
       if (layerInfo.frozen === true || (layerInfo.flags && layerInfo.flags & 4)) return false;
       if (layerInfo.off === true || (layerInfo.flags && layerInfo.flags & 2)) return false;
@@ -587,10 +590,11 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     }
   }
 
-  const getEntityColor = (entity, layers = {}) => {
+  const getEntityColor = (entity, layers = {}, effectiveLayerOverride = null) => {
+    const layerKey = effectiveLayerOverride ?? entity.layer;
     // Handle layer-specific colors first
-    if (entity.layer && layers[entity.layer]) {
-      const layerInfo = layers[entity.layer];
+    if (layerKey && layers[layerKey]) {
+      const layerInfo = layers[layerKey];
       if (layerInfo.color && typeof layerInfo.color === 'object') {
         return layerInfo.color;
       }
@@ -1022,112 +1026,14 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     },
 
     MLINE: (e, color, stroke, transforms) => {
+      // Render only a single centerline polyline to avoid multi-line artifacts
       if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
-
-      const items = [];
-      const numLines = e.numberOfLines || e.elements?.length || 2;
-      const spacing = e.lineSpacing || 10;
-
-      for (let i = 0; i < e.vertices.length - 1; i++) {
-        const start = e.vertices[i];
-        const end = e.vertices[i + 1];
-
-        if (!start || !end) continue;
-
-        const dx = end.x - start.x;
-        const dy = end.y - start.y;
-        const length = Math.sqrt(dx * dx + dy * dy);
-
-        if (length === 0) continue;
-
-        const perpX = -dy / length;
-        const perpY = dx / length;
-
-        for (let lineIndex = 0; lineIndex < numLines; lineIndex++) {
-          const offset = (lineIndex - (numLines - 1) / 2) * spacing;
-
-          const startX = start.x + perpX * offset;
-          const startY = start.y + perpY * offset;
-          const endX = end.x + perpX * offset;
-          const endY = end.y + perpY * offset;
-
-          const [x1, y1] = applyTransform(startX, startY, transforms);
-          const [x2, y2] = applyTransform(endX, endY, transforms);
-
-          updateBounds(x1, y1, 'MLINE', e.handle);
-          updateBounds(x2, y2, 'MLINE', e.handle);
-
-          let lineStroke = stroke;
-          if (lineIndex === 0 || lineIndex === numLines - 1) {
-            lineStroke = stroke;
-          } else {
-            lineStroke = stroke + ' stroke-dasharray="3,3"';
-          }
-
-          items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${lineStroke}/>`);
-        }
-      }
-
-      if (e.startCap || e.endCap) {
-        const firstVertex = e.vertices[0];
-        const lastVertex = e.vertices[e.vertices.length - 1];
-
-        if (firstVertex && e.startCap && e.vertices.length > 1) {
-          const secondVertex = e.vertices[1];
-          const dx = secondVertex.x - firstVertex.x;
-          const dy = secondVertex.y - firstVertex.y;
-          const length = Math.sqrt(dx * dx + dy * dy);
-
-          if (length > 0) {
-            const perpX = -dy / length;
-            const perpY = dx / length;
-            const halfWidth = (numLines - 1) * spacing / 2;
-
-            const capStart = {
-              x: firstVertex.x + perpX * halfWidth,
-              y: firstVertex.y + perpY * halfWidth
-            };
-            const capEnd = {
-              x: firstVertex.x - perpX * halfWidth,
-              y: firstVertex.y - perpY * halfWidth
-            };
-
-            const [cx1, cy1] = applyTransform(capStart.x, capStart.y, transforms);
-            const [cx2, cy2] = applyTransform(capEnd.x, capEnd.y, transforms);
-
-            items.push(`<line x1="${round(cx1)}" y1="${round(cy1)}" x2="${round(cx2)}" y2="${round(cy2)}" ${stroke}/>`);
-          }
-        }
-
-        if (lastVertex && e.endCap && e.vertices.length > 1) {
-          const secondLastVertex = e.vertices[e.vertices.length - 2];
-          const dx = lastVertex.x - secondLastVertex.x;
-          const dy = lastVertex.y - secondLastVertex.y;
-          const length = Math.sqrt(dx * dx + dy * dy);
-
-          if (length > 0) {
-            const perpX = -dy / length;
-            const perpY = dx / length;
-            const halfWidth = (numLines - 1) * spacing / 2;
-
-            const capStart = {
-              x: lastVertex.x + perpX * halfWidth,
-              y: lastVertex.y + perpY * halfWidth
-            };
-            const capEnd = {
-              x: lastVertex.x - perpX * halfWidth,
-              y: lastVertex.y - perpY * halfWidth
-            };
-
-            const [cx1, cy1] = applyTransform(capStart.x, capStart.y, transforms);
-            const [cx2, cy2] = applyTransform(capEnd.x, capEnd.y, transforms);
-
-            items.push(`<line x1="${round(cx1)}" y1="${round(cy1)}" x2="${round(cx2)}" y2="${round(cy2)}" ${stroke}/>`);
-          }
-        }
-      }
-
-      return items.length > 0 ? items.join('') : null;
+      const points = e.vertices.map(v => {
+        const [x, y] = applyTransform(v.x, v.y, transforms);
+        updateBounds(x, y, 'MLINE', e.handle);
+        return `${round(x)},${round(y)}`;
+      });
+      return `<polyline points="${points.join(' ')}" ${stroke}/>`;
     },
 
     ATTDEF: (e, color, stroke, transforms) => {
@@ -1272,7 +1178,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     };
   }
 
-  const generateElement = (e, source, currentTransforms, highlightedEntityHandle) => {
+  const generateElement = (e, source, currentTransforms, highlightedEntityHandle, parentLayer = null) => {
     if (!e?.type) {
       return null;
     }
@@ -1282,7 +1188,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       return acc;
     }, {}) || {};
 
-    if (!shouldRenderEntity(e, layerInfo)) {
+    const effectiveLayer = e.layer || parentLayer;
+    if (!shouldRenderEntity(e, layerInfo, effectiveLayer)) {
       return null;
     }
 
@@ -1309,7 +1216,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     }
 
     try {
-      const color = getEntityColor(e, layerInfo);
+      const color = getEntityColor(e, layerInfo, effectiveLayer);
       const strokeWidth = normalizeStrokeWidth();
 
       const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
@@ -1394,7 +1301,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     if (regularEntities.length > 0) {
       const regularElements = [];
       for (const e of regularEntities) {
-        const element = generateElement(e, source, currentTransforms, highlightedEntityHandle);
+        const element = generateElement(e, source, currentTransforms, highlightedEntityHandle, null);
         if (element) {
           regularElements.push(element);
         }
@@ -1429,7 +1336,7 @@ ${regularElements.join('\n')}
       return acc;
     }, {}) || {};
 
-    if (!shouldRenderEntity(e, layerInfo)) {
+    if (!shouldRenderEntity(e, layerInfo, e.layer)) {
       // console.log(`INSERT entity filtered out by shouldRenderEntity: ${blockName} on layer ${e.layer}`);
       return null;
     }
@@ -1462,6 +1369,32 @@ ${regularElements.join('\n')}
 
     const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
 
+    // In single-layer mode, expand the block inline so only effective-layer content appears
+    if (isSingleLayerMode) {
+      const combinedTransforms = [
+        ...currentTransforms,
+        { x: insertPoint.x, y: insertPoint.y, rotation, scaleX: xScale, scaleY: yScale }
+      ];
+
+      const inlineContent = [];
+      for (const be of blockEntities) {
+        const childEffectiveLayer = (!be.layer || be.layer === '0') ? e.layer : be.layer;
+        if (!isLayerVisible(childEffectiveLayer)) continue;
+        const element = generateElement(be, `Insert_${blockName}`, combinedTransforms, highlightedEntityHandle, childEffectiveLayer);
+        if (element) inlineContent.push(element);
+      }
+
+      if (inlineContent.length === 0) return null;
+
+      const dataHandle = e.handle ? `data-handle="${e.handle}"` : '';
+      const entityClass = isHighlighted ?
+        `class="dwg-entity deletable-entity insert-block highlighted-entity"` :
+        `class="dwg-entity deletable-entity insert-block"`;
+
+      return `<g id="${e.handle || groupId}" ${dataHandle} ${entityClass}>${inlineContent.join('')}</g>`;
+    }
+
+    // Default: use defs + <use>
     let strokeStyle, fillStyle, strokeWidth_final;
     if (isHighlighted) {
       strokeStyle = 'stroke="red"';
@@ -1501,7 +1434,7 @@ ${regularElements.join('\n')}
           continue;
         }
 
-        const element = generateElement(entity, `Block_${blockName}`, [], highlightedEntityHandle);
+        const element = generateElement(entity, `Block_${blockName}`, [], highlightedEntityHandle, null);
         if (element) {
           blockContent.push(element);
         }
@@ -1588,6 +1521,13 @@ ${defs.join('\n')}
           }
         }
 
+        // If a specific layer set is provided, strictly enforce it for top-level entities
+        if (!shouldShowAllLayers) {
+          if (!entity.layer || !visibleLayers.includes(entity.layer)) {
+            return false;
+          }
+        }
+
         return true;
       });
 
@@ -1606,7 +1546,7 @@ ${defs.join('\n')}
     return content;
   };
 
-  const blockDefs = generateBlockDefinitions();
+  const blockDefs = isSingleLayerMode ? '' : generateBlockDefinitions();
   const svgElements = generateSVGContent();
   const svgContent = svgElements.join('\n');
 
@@ -1749,6 +1689,7 @@ ${defs.join('\n')}
   const fit = computeFitTransform(tightBounds, targetWidth, targetHeight, 0.02);
   console.log('Fit-to-viewbox transform:', fit);
 
+  // In single-layer mode, ensure we remove any style that might recolor or show other layers unintentionally
   let svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${targetWidth} ${targetHeight}">
     ${enhancedSvgStyles}
     ${blockDefs}
