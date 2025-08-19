@@ -8,6 +8,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
   const shouldShowAllLayers = !visibleLayers || !Array.isArray(visibleLayers);
   const isSingleLayerMode = Array.isArray(visibleLayers) && visibleLayers.length === 1;
+  const visibleLayersSet = shouldShowAllLayers ? null : new Set((visibleLayers || []).map(l => String(l).toUpperCase()));
 
   console.log('Layer visibility control:', {
     visibleLayers,
@@ -488,7 +489,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       return false;
     }
 
-    const isVisible = visibleLayers.includes(layerName);
+    const isVisible = visibleLayersSet.has(String(layerName).toUpperCase());
 
     if (!isVisible) {
       skippedByLayer.set(layerName, (skippedByLayer.get(layerName) || 0) + 1);
@@ -1188,7 +1189,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       return acc;
     }, {}) || {};
 
-    const effectiveLayer = e.layer || parentLayer;
+    const effectiveLayer = (e.layer && e.layer !== '0') ? e.layer : parentLayer;
     if (!shouldRenderEntity(e, layerInfo, effectiveLayer)) {
       return null;
     }
@@ -1378,7 +1379,13 @@ ${regularElements.join('\n')}
 
       const inlineContent = [];
       for (const be of blockEntities) {
-        const childEffectiveLayer = (!be.layer || be.layer === '0') ? e.layer : be.layer;
+        // Flatten nested INSERTs too in single-layer mode
+        if (be.type === 'INSERT') {
+          const nested = generateInsertUseElement({ ...be, layer: (be.layer && be.layer !== '0') ? be.layer : e.layer }, source, combinedTransforms);
+          if (nested) inlineContent.push(nested);
+          continue;
+        }
+        const childEffectiveLayer = (be.layer && be.layer !== '0') ? be.layer : e.layer;
         if (!isLayerVisible(childEffectiveLayer)) continue;
         const element = generateElement(be, `Insert_${blockName}`, combinedTransforms, highlightedEntityHandle, childEffectiveLayer);
         if (element) inlineContent.push(element);
@@ -1523,8 +1530,10 @@ ${defs.join('\n')}
 
         // If a specific layer set is provided, strictly enforce it for top-level entities
         if (!shouldShowAllLayers) {
-          if (!entity.layer || !visibleLayers.includes(entity.layer)) {
-            return false;
+          const entityLayerKey = entity.layer ? String(entity.layer).toUpperCase() : '';
+          if (!entityLayerKey || !visibleLayersSet.has(entityLayerKey)) {
+            // Allow INSERT to pass for inline expansion filtering
+            if (entity.type !== 'INSERT') return false;
           }
         }
 
