@@ -41,11 +41,24 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     dropLayersLike: ['DEFPOINTS', 'DIMS', 'DIM', 'DIMENSIONS', 'ANNOTATION', 'ANNO', 'TEXT', 'MTEXT', 'TITLE', 'BORDER', 'SHEET', 'PLOT', 'HATCH', 'PATTERN', 'SYMB', 'SYMBOL', 'SYMBOLS', 'XREF'],
     // When true, expand INSERT blocks inline and avoid <defs>/<use> so the SVG has a single visible layer
     flattenToSingleLayer: true,
+    // Aggressively aggregate all segments to a few <path> elements to reduce size
+    aggregatePaths: true,
+    // Reduce output attributes and classes for exported SVG
+    exportMinified: true,
+    // Decimal places for numeric output
+    decimalPlaces: 2,
+    // Simplification and filtering
+    simplifyTolerance: 0.5,
+    minLineLengthRatio: 0.0015,
+    closedShapeAreaMinRatio: 0.00005,
+    minClosedShapeAreaAbs: 5,
   };
 
   const round = (num) => {
     if (!Number.isFinite(num)) return 0;
-    return Math.round(num * 1000) / 1000;
+    const p = Math.max(0, Math.min(6, config.decimalPlaces || 2));
+    const f = Math.pow(10, p);
+    return Math.round(num * f) / f;
   };
   const normalizeStrokeWidth = () => 10;
 
@@ -686,6 +699,38 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     return { r: 0, g: 0, b: 0 };
   };
 
+  // Aggregated path buckets for size reduction
+  const pathBuckets = new Map(); // key: attrs string, value: path d string
+
+  const getMinStrokeAttrs = (stroke) => {
+    if (config.exportMinified) {
+      return 'stroke="#000" stroke-width="1" fill="none"';
+    }
+    let s = stroke || '';
+    s = s.replace(/stroke-dasharray="none"/g, '').trim();
+    s = s.replace(/\s{2,}/g, ' ');
+    s = s.replace(/fill="[^"]*"/g, 'fill="none"');
+    return s.trim();
+  };
+
+  const addPathSegment = (attrs, d) => {
+    if (!d) return;
+    const key = attrs;
+    if (!pathBuckets.has(key)) pathBuckets.set(key, '');
+    pathBuckets.set(key, pathBuckets.get(key) + d);
+  };
+
+  const flushAggregatedPaths = () => {
+    const out = [];
+    for (const [attrs, d] of pathBuckets.entries()) {
+      const dd = d.trim();
+      if (dd.length === 0) continue;
+      out.push(`<path d="${dd}" ${attrs}/>`);
+    }
+    pathBuckets.clear();
+    return out;
+  };
+
   // --- New spatial hashing and identity dedup helpers (from user snippet) ---
   const getEntityBounds = (entity) => {
     switch (entity.type) {
@@ -1136,7 +1181,11 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
       updateBounds(x1, y1, 'LINE', e.handle);
       updateBounds(x2, y2, 'LINE', e.handle);
-
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        addPathSegment(attrs, `M${round(x1)} ${round(y1)} L${round(x2)} ${round(y2)} `);
+        return '';
+      }
       return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke}/>`;
     },
 
@@ -1212,38 +1261,76 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
     LWPOLYLINE: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
-
-      const points = e.vertices.map(v => {
+      const tol = config.simplifyTolerance || 0.1;
+      const verts = simplifyPolyline(e.vertices, tol);
+      const points = verts.map(v => {
         const [x, y] = applyTransform(v.x, v.y, transforms);
         updateBounds(x, y, 'LWPOLYLINE', e.handle);
         return `${round(x)},${round(y)}`;
       });
-
-      const tag = e.closed || e.flags === 1 ? "polygon" : "polyline";
+      const isClosed = e.closed || e.flags === 1;
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        if (points.length >= 2) {
+          const [sx, sy] = points[0].split(',');
+          let d = `M${sx} ${sy}`;
+          for (let i = 1; i < points.length; i++) {
+            const [px, py] = points[i].split(',');
+            d += ` L${px} ${py}`;
+          }
+          if (isClosed) d += ' Z';
+          addPathSegment(attrs, d + ' ');
+        }
+        return '';
+      }
+      const tag = isClosed ? "polygon" : "polyline";
       return `<${tag} points="${points.join(' ')}" ${stroke}/>`;
     },
 
     POLYGON: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 3) return null;
-
-      const points = e.vertices.map(v => {
+      const tol = config.simplifyTolerance || 0.1;
+      const verts = simplifyPolyline(e.vertices, tol);
+      const points = verts.map(v => {
         const [x, y] = applyTransform(v.x, v.y, transforms);
         updateBounds(x, y, 'POLYGON', e.handle);
         return `${round(x)},${round(y)}`;
       });
-
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        const [sx, sy] = points[0].split(',');
+        let d = `M${sx} ${sy}`;
+        for (let i = 1; i < points.length; i++) {
+          const [px, py] = points[i].split(',');
+          d += ` L${px} ${py}`;
+        }
+        d += ' Z ';
+        addPathSegment(attrs, d);
+        return '';
+      }
       return `<polygon points="${points.join(' ')}" ${stroke}/>`;
     },
 
     POLYLINE: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
-
-      const points = e.vertices.map(v => {
+      const tol = config.simplifyTolerance || 0.1;
+      const verts = simplifyPolyline(e.vertices, tol);
+      const points = verts.map(v => {
         const [x, y] = applyTransform(v.x, v.y, transforms);
         updateBounds(x, y, 'POLYLINE', e.handle);
         return `${round(x)},${round(y)}`;
       });
-
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        const [sx, sy] = points[0].split(',');
+        let d = `M${sx} ${sy}`;
+        for (let i = 1; i < points.length; i++) {
+          const [px, py] = points[i].split(',');
+          d += ` L${px} ${py}`;
+        }
+        addPathSegment(attrs, d + ' ');
+        return '';
+      }
       return `<polyline points="${points.join(' ')}" ${stroke}/>`;
     },
 
@@ -1261,6 +1348,13 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       updateBounds(minX, minY, 'OLE2FRAME', e.handle);
       updateBounds(minX + width, minY + height, 'OLE2FRAME', e.handle);
 
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        const x = round(minX), y = round(minY), w = round(width), h = round(height);
+        const d = `M${x} ${y} L${x + w} ${y} L${x + w} ${y + h} L${x} ${y + h} Z `;
+        addPathSegment(attrs, d);
+        return '';
+      }
       const frameStroke = stroke.replace(/fill="[^"]*"\s*/, '') + ' stroke-dasharray="5,5"';
       return `<rect x="${round(minX)}" y="${round(minY)}" width="${round(width)}" height="${round(height)}" ${frameStroke}/>`;
     },
@@ -1292,11 +1386,16 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
         if (pathData) {
           pathData += ' Z';
-          paths.push(`<path d="${pathData}" ${stroke}/>`);
+          if (config.aggregatePaths) {
+            const attrs = getMinStrokeAttrs(stroke);
+            addPathSegment(attrs, pathData + ' ');
+          } else {
+            paths.push(`<path d="${pathData}" ${stroke}/>`);
+          }
         }
       }
 
-      return paths.join('');
+      return config.aggregatePaths ? '' : paths.join('');
     },
 
     MTEXT: (e, color, stroke, transforms) => {
@@ -1406,7 +1505,18 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         updateBounds(x, y, 'SOLID', e.handle);
         return `${round(x)},${round(y)}`;
       });
-
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        const [sx, sy] = points[0].split(',');
+        let d = `M${sx} ${sy}`;
+        for (let i = 1; i < points.length; i++) {
+          const [px, py] = points[i].split(',');
+          d += ` L${px} ${py}`;
+        }
+        d += ' Z ';
+        addPathSegment(attrs, d);
+        return '';
+      }
       const solidStroke = stroke.replace(/fill="[^"]*"/, `fill="rgb(${color},${color},${color})"`);
       return `<polygon points="${points.join(' ')}" ${solidStroke}/>`;
     },
@@ -1420,7 +1530,18 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         updateBounds(x, y, '3DFACE', e.handle);
         return `${round(x)},${round(y)}`;
       });
-
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        const [sx, sy] = points[0].split(',');
+        let d = `M${sx} ${sy}`;
+        for (let i = 1; i < points.length; i++) {
+          const [px, py] = points[i].split(',');
+          d += ` L${px} ${py}`;
+        }
+        d += ' Z ';
+        addPathSegment(attrs, d);
+        return '';
+      }
       return `<polygon points="${points.join(' ')}" ${stroke}/>`;
     },
 
@@ -1510,10 +1631,15 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         const [x2, y2] = applyTransform(end.x, end.y, transforms);
         updateBounds(x1, y1, 'MLINE', e.handle);
         updateBounds(x2, y2, 'MLINE', e.handle);
-        const mlineStroke = stroke.replace(/stroke-width="[^"]*"/, 'stroke-width="2"');
-        items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${mlineStroke}/>`);
+        if (config.aggregatePaths) {
+          const attrs = getMinStrokeAttrs(stroke);
+          addPathSegment(attrs, `M${round(x1)} ${round(y1)} L${round(x2)} ${round(y2)} `);
+        } else {
+          const mlineStroke = stroke.replace(/stroke-width="[^"]*"/, 'stroke-width="2"');
+          items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${mlineStroke}/>`);
+        }
       }
-      return items.length > 0 ? items.join('') : null;
+      return config.aggregatePaths ? '' : (items.length > 0 ? items.join('') : null);
     },
 
     ATTDEF: (e, color, stroke, transforms) => {
@@ -1786,7 +1912,13 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         }
       }
 
-      if (regularElements.length > 0) {
+      if (config.aggregatePaths) {
+        // Flush aggregated <path> into this group
+        const flushed = flushAggregatedPaths();
+        if (flushed.length > 0) {
+          content.push(`<g id="${escapeXml(source)}">${flushed.join('')}</g>`);
+        }
+      } else if (regularElements.length > 0) {
         content.push(`<g id="${escapeXml(source)}" class="entity-group">
 ${regularElements.join('\n')}
 </g>`);
@@ -1800,6 +1932,12 @@ ${regularElements.join('\n')}
       }
     }
 
+    if (config.aggregatePaths) {
+      const flushedAtEnd = flushAggregatedPaths();
+      if (flushedAtEnd.length > 0) {
+        content.push(`<g id="${escapeXml(source)}">${flushedAtEnd.join('')}</g>`);
+      }
+    }
     return content;
   };
 
@@ -1999,7 +2137,38 @@ ${defs.join('\n')}
       filteredEntities = consolidateBlockInstances(filteredEntities);
       filteredEntities = optimizeCircularEntities(filteredEntities);
 
-      // 3) Unify all layers for a true single-layer SVG feel
+      // 3) Remove tiny, redundant shapes and simplify geometry further
+      const contentBounds = calculateTightBounds(filteredEntities);
+      const minDim = Math.max(1, Math.min(contentBounds.maxX - contentBounds.minX, contentBounds.maxY - contentBounds.minY));
+      const minLineLen = minDim * (config.minLineLengthRatio || 0.0015);
+      const minArea = Math.max(minDim * minDim * (config.closedShapeAreaMinRatio || 0.00005), config.minClosedShapeAreaAbs || 5);
+
+      filteredEntities = filteredEntities.filter(e => {
+        switch (e.type) {
+          case 'LINE': {
+            const s = e.startPoint || e.start; const t = e.endPoint || e.end; if (!s || !t) return false;
+            const dx = t.x - s.x, dy = t.y - s.y; return Math.hypot(dx, dy) >= minLineLen;
+          }
+          case 'POLYGON':
+          case 'LWPOLYLINE':
+          case 'POLYLINE': {
+            const verts = e.vertices || []; if (verts.length < 2) return false;
+            // area approximation (shoelace) if closed
+            const isClosed = e.closed || e.flags === 1 || (verts.length > 2 && (verts[0].x === verts[verts.length - 1].x && verts[0].y === verts[verts.length - 1].y));
+            if (!isClosed) {
+              // length check for open polylines
+              let length = 0; for (let i = 0; i < verts.length - 1; i++) { const v1 = verts[i], v2 = verts[i + 1]; length += Math.hypot(v2.x - v1.x, v2.y - v1.y); }
+              return length >= minLineLen;
+            }
+            let area2 = 0; for (let i = 0; i < verts.length; i++) { const a = verts[i], b = verts[(i + 1) % verts.length]; area2 += a.x * b.y - b.x * a.y; }
+            const area = Math.abs(area2) / 2; return area >= minArea;
+          }
+          case 'CIRCLE': return (e.radius || 0) >= (minLineLen * 0.5);
+          default: return true;
+        }
+      });
+
+      // 4) Unify all layers for a true single-layer SVG feel
       if (config.flattenToSingleLayer) {
         filteredEntities = filteredEntities.map(e => ({ ...e, layer: '0' }));
       }
@@ -2159,7 +2328,7 @@ ${defs.join('\n')}
   console.log('Fit-to-viewbox transform:', fit);
 
   let svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${targetWidth} ${targetHeight}">
-    ${enhancedSvgStyles}
+    ${config.exportMinified ? '' : enhancedSvgStyles}
     ${blockDefs}
     <g transform="${fit.transform}">
       ${svgContent}
@@ -2168,10 +2337,15 @@ ${defs.join('\n')}
 
   // Remove excessive whitespace & comments, and trim decimals to 3 places
   svgString = svgString
-    .replace(/>\s+</g, '><')          // Remove whitespace between tags
-    .replace(/\s{2,}/g, ' ')          // Collapse multiple spaces
-    .replace(/<!--.*?-->/g, '')       // Remove comments
-    .replace(/(\d+\.\d{3})\d+/g, '$1'); // Limit decimals
+    .replace(/>\s+</g, '><')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/<!--.*?-->/g, '')
+    .replace(/(\d+\.\d{3})\d+/g, '$1')
+    .replace(/\s*class="[^"]*"/g, config.exportMinified ? '' : '$&')
+    .replace(/\s*data-handle="[^"]*"/g, config.exportMinified ? '' : '$&')
+    .replace(/\s*stroke-dasharray="none"/g, '')
+    .replace(/\s*opacity="1"/g, '')
+    .replace(/\s*id="[^\"]*"/g, config.exportMinified ? '' : '$&');
 
   return svgString;
 }
