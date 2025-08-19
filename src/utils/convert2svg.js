@@ -60,7 +60,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     const f = Math.pow(10, p);
     return Math.round(num * f) / f;
   };
-  const normalizeStrokeWidth = () => 10;
+  const normalizeStrokeWidth = () => 2;
 
   const applyTransform = (x, y, transforms = transformStack) => {
     let px = x;
@@ -704,7 +704,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
   const getMinStrokeAttrs = (stroke) => {
     if (config.exportMinified) {
-      return 'stroke="#000" stroke-width="1" fill="none"';
+      return `stroke="#000" stroke-width="${normalizeStrokeWidth()}" fill="none"`;
     }
     let s = stroke || '';
     s = s.replace(/stroke-dasharray="none"/g, '').trim();
@@ -1848,7 +1848,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         strokeDashArray = 'none';
       }
 
-      const stroke = `stroke="${strokeColor}" stroke-width="${strokeWidth_final}" fill="${fillColor}" stroke-dasharray="${strokeDashArray}"`;
+      const stroke = `stroke="${strokeColor}" stroke-width="${strokeWidth_final}" vector-effect="non-scaling-stroke" fill="${fillColor}" stroke-dasharray="${strokeDashArray}"`;
 
       const result = handler(e, color, stroke, currentTransforms);
       if (result && e.handle) {
