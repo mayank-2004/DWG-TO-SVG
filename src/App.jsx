@@ -1009,6 +1009,33 @@ export default function App() {
       alert('Failed to download SVG file.');
     }
   };
+  // const download = () => {
+  //   if (!svg) return;
+
+  //   try {
+  //     // Compress SVG content before download
+  //     let compressedSvg = svg
+  //       .replace(/(\d+\.\d)\d+/g, '$1')           // Limit decimals
+  //       .replace(/\s{2,}/g, ' ')                  // Collapse spaces
+  //       .replace(/>\s+</g, '><');                 // Remove inter-tag whitespace
+
+  //     const blob = new Blob([compressedSvg], {
+  //       type: "image/svg+xml;charset=utf-8"
+  //     });
+
+  //     // Log file size for monitoring
+  //     console.log(`SVG file size: ${(blob.size / (1024 * 1024)).toFixed(2)} MB`);
+
+  //     const a = document.createElement("a");
+  //     a.href = URL.createObjectURL(blob);
+  //     a.download = name || "drawing.svg";
+  //     a.click();
+  //     URL.revokeObjectURL(a.href);
+  //   } catch (err) {
+  //     console.error('Error downloading SVG:', err);
+  //     alert('Failed to download SVG file.');
+  //   }
+  // };
 
   const handleSvgChange = (newSvg) => {
     setSvg(newSvg);

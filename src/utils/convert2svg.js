@@ -8,12 +8,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
   const shouldShowAllLayers = !visibleLayers || !Array.isArray(visibleLayers);
 
-  console.log('Layer visibility control:', {
-    visibleLayers,
-    shouldShowAllLayers,
-    totalVisibleLayers: visibleLayers?.length || 'all'
-  });
-
   const bounds = {
     minX: Infinity,
     minY: Infinity,
@@ -30,18 +24,23 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
   const config = {
     hideDimensions: true,
-    hideText: true,
+    hideText: false,
     hidePoints: true,
     simplifySplines: true,
     strokeWidth: 0.5,
     textSizeMultiplier: 0.3,
+    minBigTextFactor: 0.018,
+    dropEntityTypes: new Set(['DIMENSION', 'LEADER', 'HATCH', 'POINT', 'ATTDEF', 'TOLERANCE', 'MLINE', 'TABLE', 'VIEWPORT']),
+    dropLayersLike: ['DEFPOINTS', 'DIMS', 'DIM', 'DIMENSIONS', 'ANNOTATION', 'ANNO', 'TEXT', 'MTEXT', 'TITLE', 'BORDER', 'SHEET', 'PLOT', 'HATCH', 'PATTERN', 'SYMB', 'SYMBOL', 'SYMBOLS', 'XREF'],
+    flattenToSingleLayer: true,
   };
 
-  const round = (num) => {
+  const round = (num, precision = 1) => {
     if (!Number.isFinite(num)) return 0;
-    return Math.round(num * 1000) / 1000;
+    const factor = Math.pow(10, precision);
+    return Math.round(num * factor) / factor;
   };
-  const normalizeStrokeWidth = () => 10;
+  const normalizeStrokeWidth = () => 8;
 
   const applyTransform = (x, y, transforms = transformStack) => {
     let px = x;
@@ -98,10 +97,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       if (!entity?.type) return;
 
       if (entity.layer === 'G-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') return;
-
       if (entity.layer && !isLayerVisible(entity.layer)) return;
-
-      // Skip unwanted circular entities in bounds calculation
       if (isUnwantedCircularEntity(entity)) return;
 
       switch (entity.type) {
@@ -113,30 +109,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             addPoint(x2, y2, 'LINE', entity.handle);
           }
           break;
-        // case 'CIRCLE':
-        //   if (entity.center && entity.radius) {
-        //     const [cx, cy] = applyTransform(entity.center.x, entity.center.y, transformStack);
-        //     addPoint(cx - entity.radius, cy - entity.radius, 'CIRCLE', entity.handle);
-        //     addPoint(cx + entity.radius, cy + entity.radius, 'CIRCLE', entity.handle);
-        //   }
-        //   break;
-        // case 'ARC':
-        // if (entity.center && entity.radius) {
-        //   const startAngle = entity.startAngle || 0;
-        //   const endAngle = entity.endAngle || 2 * Math.PI;
-        //   const sx = entity.center.x + entity.radius * Math.cos(startAngle);
-        //   const sy = entity.center.y + entity.radius * Math.sin(startAngle);
-        //   const ex = entity.center.x + entity.radius * Math.cos(endAngle);
-        //   const ey = entity.center.y + entity.radius * Math.sin(endAngle);
-        //   const [x1, y1] = applyTransform(sx, sy, transformStack);
-        //   const [x2, y2] = applyTransform(ex, ey, transformStack);
-        //   addPoint(x1, y1, 'ARC', entity.handle);
-        //   addPoint(x2, y2, 'ARC', entity.handle);
-        //   const [cx, cy] = applyTransform(entity.center.x, entity.center.y, transformStack);
-        //   addPoint(cx - entity.radius, cy - entity.radius, 'ARC', entity.handle);
-        //   addPoint(cx + entity.radius, cy + entity.radius, 'ARC', entity.handle);
-        // }
-        // break;
 
         case 'LWPOLYLINE':
         case 'POLYLINE':
@@ -150,15 +122,18 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             });
           }
           break;
+
         case 'TEXT':
-        case 'MTEXT':
+        case 'MTEXT': {
           const textPos = entity.position || entity.insertionPoint || entity.insert;
           if (textPos) {
             const [x, y] = applyTransform(textPos.x, textPos.y, transformStack);
             addPoint(x, y, entity.type, entity.handle);
           }
           break;
-        case 'INSERT':
+        }
+
+        case 'INSERT': {
           const insertPos = entity.insertionPoint || entity.position;
           if (insertPos) {
             const [x, y] = applyTransform(insertPos.x, insertPos.y, transformStack);
@@ -186,15 +161,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             }
           }
           break;
-        // case 'ELLIPSE':
-        //   if (entity.center && entity.majorAxisEndPoint) {
-        //     const rx = Math.sqrt(entity.majorAxisEndPoint.x ** 2 + entity.majorAxisEndPoint.y ** 2);
-        //     const ry = rx * (entity.axisRatio || 1);
-        //     const [cx, cy] = applyTransform(entity.center.x, entity.center.y, transformStack);
-        //     addPoint(cx - rx, cy - ry, 'ELLIPSE', entity.handle);
-        //     addPoint(cx + rx, cy + ry, 'ELLIPSE', entity.handle);
-        //   }
-        //   break;
+        }
+
         case 'OLE2FRAME':
           if (entity.lowerLeft && entity.upperRight) {
             const [x1, y1] = applyTransform(entity.lowerLeft.x, entity.lowerLeft.y, transformStack);
@@ -203,23 +171,11 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             addPoint(x2, y2, 'OLE2FRAME', entity.handle);
           }
           break;
-        case 'HATCH':
-          if (Array.isArray(entity.boundaryPaths)) {
-            entity.boundaryPaths.forEach(boundary => {
-              if (Array.isArray(boundary.edges)) {
-                boundary.edges.forEach(edge => {
-                  if (edge.type === 1 && edge.start && edge.end) {
-                    const [x1, y1] = applyTransform(edge.start.x, edge.start.y, transformStack);
-                    const [x2, y2] = applyTransform(edge.end.x, edge.end.y, transformStack);
-                    addPoint(x1, y1, 'HATCH', entity.handle);
-                    addPoint(x2, y2, 'HATCH', entity.handle);
-                  }
-                });
-              }
-            });
-          }
+
+        case 'HATCH': // already filtered from rendering; keep out of bounds too
           break;
-        case 'SPLINE':
+
+        case 'SPLINE': {
           const points = entity.controlPoints || entity.fitPoints;
           if (Array.isArray(points)) {
             points.forEach(pt => {
@@ -230,8 +186,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             });
           }
           break;
+        }
+
         case 'SOLID':
-        case '3DFACE':
+        case '3DFACE': {
           const corners = entity.corners || [entity.corner1, entity.corner2, entity.corner3, entity.corner4].filter(Boolean);
           if (Array.isArray(corners)) {
             corners.forEach(corner => {
@@ -242,6 +200,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             });
           }
           break;
+        }
         case 'LEADER':
           if (Array.isArray(entity.vertices)) {
             entity.vertices.forEach(vertex => {
@@ -416,7 +375,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     const contentW = bounds.maxX - bounds.minX;
     const contentH = bounds.maxY - bounds.minY;
 
-    // Add padding in model units
     const padX = contentW * padding;
     const padY = contentH * padding;
 
@@ -428,15 +386,11 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     const paddedW = paddedMaxX - paddedMinX;
     const paddedH = paddedMaxY - paddedMinY;
 
-    // Determine uniform scale to fit inside target box
     const scale = Math.min(targetW / paddedW, targetH / paddedH);
 
-    // Centering offsets in target pixel space
     const offsetX = (targetW - paddedW * scale) / 2;
     const offsetY = (targetH - paddedH * scale) / 2;
 
-    // We flip Y with scale(s, -s) and then move origin so that (paddedMinX, paddedMaxY) maps to (offsetX, offsetY)
-    // Because with scaleY=-s the y=0 line is at the top and positive goes down.
     const innerTranslateX = -paddedMinX;
     const innerTranslateY = -paddedMaxY;
 
@@ -519,28 +473,38 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
     const layerInfo = layers[entity.layer];
     if (layerInfo) {
-      if (layerInfo.frozen === true || (layerInfo.flags && layerInfo.flags & 4)) return false;
-      if (layerInfo.off === true || (layerInfo.flags && layerInfo.flags & 2)) return false;
-      if (layerInfo.flags && layerInfo.flags & 1) return false;
+      if (layerInfo.frozen === true || (layerInfo.flags && (layerInfo.flags & 4))) return false;
+      if (layerInfo.off === true || (layerInfo.flags && (layerInfo.flags & 2))) return false;
+      if (layerInfo.flags && (layerInfo.flags & 1)) return false;
     }
 
-    if (entity.invisible === true || (entity.flags && entity.flags & 1)) {
-      console.log(`Skipping invisible entity: ${entity.type}`);
+    if (entity.invisible === true || (entity.flags && (entity.flags & 1))) return false;
+    if (entity.plotFlag === false) return false;
+
+    // Drop certain entity types entirely for a cleaner single-layer output
+    if (config.dropEntityTypes && config.dropEntityTypes.has(entity.type)) {
       return false;
     }
 
-    if (entity.plotFlag === false) {
-      console.log(`Skipping non-plotting entity: ${entity.type}`);
-      return false;
+    // Drop layers that look like annotation/symbol layers
+    if (entity.layer && Array.isArray(config.dropLayersLike)) {
+      const lname = entity.layer.toUpperCase();
+      for (const key of config.dropLayersLike) {
+        if (lname.includes(key)) return false;
+      }
     }
+
+    if (entity.type === 'TEXT' || entity.type === 'MTEXT') {
+      return true;
+    }
+
+    if (isUnwantedCircularEntity(entity)) return false;
 
     return true;
   };
 
   const isUnwantedCircularEntity = (entity) => {
-    if (!['CIRCLE', 'ARC', 'ELLIPSE'].includes(entity.type)) {
-      return false;
-    }
+    if (!['CIRCLE', 'ARC', 'ELLIPSE'].includes(entity.type)) return false;
 
     // Filter out very large circles that are likely viewport boundaries or construction geometry
     if (entity.type === 'CIRCLE' && entity.radius > 1000) {
@@ -588,64 +552,336 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   }
 
   const getEntityColor = (entity, layers = {}) => {
-    // Handle layer-specific colors first
     if (entity.layer && layers[entity.layer]) {
       const layerInfo = layers[entity.layer];
       if (layerInfo.color && typeof layerInfo.color === 'object') {
         return layerInfo.color;
       }
-      // Handle layer color index
       if (layerInfo.colorIndex !== undefined && layerInfo.colorIndex !== 256) {
         const colorPalette = [
-          { r: 0, g: 0, b: 0 },      // 0 - Black
-          { r: 255, g: 0, b: 0 },    // 1 - Red  
-          { r: 255, g: 255, b: 0 },  // 2 - Yellow
-          { r: 0, g: 255, b: 0 },    // 3 - Green
-          { r: 0, g: 255, b: 255 },  // 4 - Cyan
-          { r: 0, g: 0, b: 255 },    // 5 - Blue
-          { r: 255, g: 0, b: 255 },  // 6 - Magenta
-          { r: 255, g: 255, b: 255 },// 7 - White
-          { r: 128, g: 128, b: 128 },// 8 - Gray
-          { r: 192, g: 192, b: 192 },// 9 - Light Gray
-          { r: 255, g: 127, b: 0 },  // 10 - Orange
-          { r: 127, g: 255, b: 127 },// 11 - Light Green
-          { r: 127, g: 127, b: 255 },// 12 - Light Blue
-          { r: 255, g: 127, b: 127 },// 13 - Light Red
-          { r: 255, g: 255, b: 127 },// 14 - Light Yellow
+          { r: 0, g: 0, b: 0 },
+          { r: 255, g: 0, b: 0 },
+          { r: 255, g: 255, b: 0 },
+          { r: 0, g: 255, b: 0 },
+          { r: 0, g: 255, b: 255 },
+          { r: 0, g: 0, b: 255 },
+          { r: 255, g: 0, b: 255 },
+          { r: 255, g: 255, b: 255 },
+          { r: 128, g: 128, b: 128 },
+          { r: 192, g: 192, b: 192 },
+          { r: 255, g: 127, b: 0 },
+          { r: 127, g: 255, b: 127 },
+          { r: 127, g: 127, b: 255 },
+          { r: 255, g: 127, b: 127 },
+          { r: 255, g: 255, b: 127 },
         ];
         return colorPalette[layerInfo.colorIndex] || { r: 0, g: 0, b: 0 };
       }
     }
 
-    // Handle entity-specific color
     if (entity.color && typeof entity.color === 'object') {
       return entity.color;
     }
 
-    // Handle entity color index (ByLayer = 256, ByBlock = 0)
     if (entity.colorIndex !== undefined && entity.colorIndex !== 256 && entity.colorIndex !== 0) {
       const colorPalette = [
-        { r: 0, g: 0, b: 0 },      // 0 - Black
-        { r: 255, g: 0, b: 0 },    // 1 - Red  
-        { r: 255, g: 255, b: 0 },  // 2 - Yellow
-        { r: 0, g: 255, b: 0 },    // 3 - Green
-        { r: 0, g: 255, b: 255 },  // 4 - Cyan
-        { r: 0, g: 0, b: 255 },    // 5 - Blue
-        { r: 255, g: 0, b: 255 },  // 6 - Magenta
-        { r: 255, g: 255, b: 255 },// 7 - White
-        { r: 128, g: 128, b: 128 },// 8 - Gray
-        { r: 192, g: 192, b: 192 },// 9 - Light Gray
-        { r: 255, g: 127, b: 0 },  // 10 - Orange
-        { r: 127, g: 255, b: 127 },// 11 - Light Green
-        { r: 127, g: 127, b: 255 },// 12 - Light Blue
-        { r: 255, g: 127, b: 127 },// 13 - Light Red
-        { r: 255, g: 255, b: 127 },// 14 - Light Yellow
+        { r: 0, g: 0, b: 0 },
+        { r: 255, g: 0, b: 0 },
+        { r: 255, g: 255, b: 0 },
+        { r: 0, g: 255, b: 0 },
+        { r: 0, g: 255, b: 255 },
+        { r: 0, g: 0, b: 255 },
+        { r: 255, g: 0, b: 255 },
+        { r: 255, g: 255, b: 255 },
+        { r: 128, g: 128, b: 128 },
+        { r: 192, g: 192, b: 192 },
+        { r: 255, g: 127, b: 0 },
+        { r: 127, g: 255, b: 127 },
+        { r: 127, g: 127, b: 255 },
+        { r: 255, g: 127, b: 127 },
+        { r: 255, g: 255, b: 127 },
       ];
       return colorPalette[entity.colorIndex] || { r: 0, g: 0, b: 0 };
     }
 
-    // Default to black for lines, but use none fill for shapes
     return { r: 0, g: 0, b: 0 };
+  };
+
+  const pointToLineDistance = (point, lineStart, lineEnd) => {
+    const A = point.x - lineStart.x;
+    const B = point.y - lineStart.y;
+    const C = lineEnd.x - lineStart.x;
+    const D = lineEnd.y - lineStart.y;
+
+    const dot = A * C + B * D;
+    const lenSq = C * C + D * D;
+
+    if (lenSq === 0) return Math.sqrt(A * A + B * B);
+
+    const param = dot / lenSq;
+
+    let xx, yy;
+    if (param < 0) {
+      xx = lineStart.x;
+      yy = lineStart.y;
+    } else if (param > 1) {
+      xx = lineEnd.x;
+      yy = lineEnd.y;
+    } else {
+      xx = lineStart.x + param * C;
+      yy = lineStart.y + param * D;
+    }
+
+    const dx = point.x - xx;
+    const dy = point.y - yy;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const simplifyPolyline = (points, tolerance = 0.1) => {
+    if (!Array.isArray(points) || points.length <= 2) return points || [];
+
+    const simplified = [points[0]];
+
+    for (let i = 1; i < points.length - 1; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const next = points[i + 1];
+      if (!prev || !curr || !next) continue;
+      const dist = pointToLineDistance(curr, prev, next);
+
+      if (dist > tolerance) {
+        simplified.push(curr);
+      }
+    }
+
+    simplified.push(points[points.length - 1]);
+    return simplified;
+  };
+
+  const removePreciseDuplicates = (entities) => {
+    const entityMap = new Map();
+    const uniqueEntities = [];
+    const safeRound = (n) => Math.round(n * 10) / 10;
+
+    for (const entity of entities) {
+      let key = '';
+      switch (entity.type) {
+        case 'LINE': {
+          const start = entity.startPoint || entity.start;
+          const end = entity.endPoint || entity.end;
+          if (start && end) {
+            key = `LINE:${safeRound(start.x)},${safeRound(start.y)}-${safeRound(end.x)},${safeRound(end.y)}:${entity.layer || ''}`;
+          }
+          break;
+        }
+        case 'LWPOLYLINE':
+        case 'POLYLINE': {
+          if (Array.isArray(entity.vertices)) {
+            const points = entity.vertices.map(v => `${safeRound(v.x)},${safeRound(v.y)}`).join('|');
+            key = `${entity.type}:${points}:${entity.layer || ''}:${entity.closed || false}`;
+          }
+          break;
+        }
+        case 'CIRCLE': {
+          if (entity.center && Number.isFinite(entity.radius)) {
+            key = `CIRCLE:${safeRound(entity.center.x)},${safeRound(entity.center.y)}:${safeRound(entity.radius)}:${entity.layer || ''}`;
+          }
+          break;
+        }
+        default: {
+          key = entity.handle || `${entity.type}:${JSON.stringify(entity).slice(0, 64)}`;
+        }
+      }
+      if (key && !entityMap.has(key)) {
+        entityMap.set(key, true);
+        uniqueEntities.push(entity);
+      }
+    }
+    console.log(`Precise deduplication: ${entities.length} → ${uniqueEntities.length} entities`);
+    return uniqueEntities;
+  };
+
+  const deduplicateLines = (entities) => {
+    const lineMap = new Map();
+    const kept = [];
+    for (const entity of entities) {
+      if (entity.type !== 'LINE') { kept.push(entity); continue; }
+      const start = entity.startPoint || entity.start;
+      const end = entity.endPoint || entity.end;
+      if (!start || !end) { kept.push(entity); continue; }
+      const x1 = Math.round(start.x * 10) / 10;
+      const y1 = Math.round(start.y * 10) / 10;
+      const x2 = Math.round(end.x * 10) / 10;
+      const y2 = Math.round(end.y * 10) / 10;
+      const key = (x1 < x2 || (x1 === x2 && y1 < y2)) ? `${x1},${y1}-${x2},${y2}` : `${x2},${y2}-${x1},${y1}`;
+      if (!lineMap.has(key)) { lineMap.set(key, true); kept.push(entity); }
+    }
+    console.log(`Line deduplication: ${entities.length} → ${kept.length} entities`);
+    return kept;
+  };
+
+  const polylinesOverlap = (poly1, poly2) => {
+    if (!Array.isArray(poly1.vertices) || !Array.isArray(poly2.vertices)) return false;
+    if (poly1.vertices.length !== poly2.vertices.length) return false;
+    const tolerance = 1.0;
+    let matching = 0;
+    for (const v1 of poly1.vertices) {
+      const match = poly2.vertices.some(v2 => Math.abs(v1.x - v2.x) < tolerance && Math.abs(v1.y - v2.y) < tolerance);
+      if (match) matching++;
+    }
+    return matching / poly1.vertices.length > 0.8;
+  };
+
+  const mergeOverlappingPolylines = (entities) => {
+    const polylines = entities.filter(e => ['LWPOLYLINE', 'POLYLINE'].includes(e.type));
+    const others = entities.filter(e => !['LWPOLYLINE', 'POLYLINE'].includes(e.type));
+    if (polylines.length === 0) return entities;
+    const merged = [];
+    const processed = new Set();
+    for (let i = 0; i < polylines.length; i++) {
+      if (processed.has(i)) continue;
+      const a = polylines[i];
+      let removedAny = false;
+      for (let j = i + 1; j < polylines.length; j++) {
+        if (processed.has(j)) continue;
+        const b = polylines[j];
+        if (polylinesOverlap(a, b)) { processed.add(j); removedAny = true; }
+      }
+      merged.push(a);
+      processed.add(i);
+    }
+    console.log(`Polyline overlap consolidation: ${polylines.length} → ${merged.length}`);
+    return [...others, ...merged];
+  };
+
+  const consolidateBoundaryLayers = (entities) => {
+    const boundaryLayers = ['BOUNDARY', 'BORDER', 'OUTLINE', 'WALL', 'PARTITION', 'FRAME', 'PERIMETER', 'EDGE', 'LINE', '0'];
+    const boundary = [];
+    const non = [];
+    for (const e of entities) {
+      const lname = e.layer?.toUpperCase() || '';
+      const isBoundary = boundaryLayers.some(k => lname.includes(k) || lname === k);
+      if (isBoundary && ['LINE', 'LWPOLYLINE', 'POLYLINE'].includes(e.type)) boundary.push(e); else non.push(e);
+    }
+    if (boundary.length === 0) return entities;
+    const dedup = deduplicateLines(boundary);
+    console.log(`Boundary consolidation: ${boundary.length} → ${dedup.length}`);
+    return [...non, ...dedup];
+  };
+
+  function calculateEntityTypeSimilarity(entities1, entities2) {
+    const dist = (entities) => {
+      const d = {};
+      for (const e of entities) d[e.type] = (d[e.type] || 0) + 1;
+      return d;
+    };
+    const d1 = dist(entities1);
+    const d2 = dist(entities2);
+    const all = new Set([...Object.keys(d1), ...Object.keys(d2)]);
+    let sim = 0; let total = 0;
+    for (const t of all) {
+      const c1 = d1[t] || 0; const c2 = d2[t] || 0; const max = Math.max(c1, c2); const min = Math.min(c1, c2);
+      if (max > 0) { sim += (min / max) * max; total += max; }
+    }
+    return total > 0 ? sim / total : 0;
+  };
+
+  const calculateLayerPriority = (layerName, metrics) => {
+    let p = 0;
+    const upper = (layerName || '').toUpperCase();
+    p += Math.log((metrics.entityCount || 0) + 1) * 0.3;
+    p += Math.log((metrics.totalLength || 0) + 1) * 0.4;
+    const high = ['WALL', 'COLUMN', 'BEAM', 'STRUCTURE', 'OUTLINE', 'BOUNDARY'];
+    const med = ['DOOR', 'WINDOW', 'STAIR', 'ELEVATOR'];
+    const low = ['HATCH', 'PATTERN', 'FILL', 'TEMP', 'XREF', 'DEFPOINTS'];
+    if (high.some(k => upper.includes(k))) p += 3; else if (med.some(k => upper.includes(k))) p += 2; else if (low.some(k => upper.includes(k))) p -= 2;
+    if ((layerName || '').length <= 5) p += 1; if (layerName === '0') p += 2;
+    return p;
+  };
+
+  const consolidateOverlappingLayers = (entities) => {
+    const layerGroups = new Map();
+    for (const e of entities) { if (!e?.layer) continue; if (!layerGroups.has(e.layer)) layerGroups.set(e.layer, []); layerGroups.get(e.layer).push(e); }
+    const layerMetrics = new Map();
+    for (const [lname, ents] of layerGroups) {
+      let totalLength = 0;
+      let bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+      const types = new Map();
+      for (const e of ents) {
+        types.set(e.type, (types.get(e.type) || 0) + 1);
+        switch (e.type) {
+          case 'LINE': {
+            const s = e.startPoint || e.start; const t = e.endPoint || e.end; if (!s || !t) break;
+            const dx = t.x - s.x; const dy = t.y - s.y; totalLength += Math.sqrt(dx * dx + dy * dy);
+            bounds.minX = Math.min(bounds.minX, s.x, t.x); bounds.maxX = Math.max(bounds.maxX, s.x, t.x);
+            bounds.minY = Math.min(bounds.minY, s.y, t.y); bounds.maxY = Math.max(bounds.maxY, s.y, t.y);
+            break;
+          }
+          case 'LWPOLYLINE':
+          case 'POLYLINE': {
+            if (Array.isArray(e.vertices) && e.vertices.length > 1) {
+              for (let i = 0; i < e.vertices.length - 1; i++) {
+                const v1 = e.vertices[i]; const v2 = e.vertices[i + 1]; const dx = v2.x - v1.x; const dy = v2.y - v1.y; totalLength += Math.sqrt(dx * dx + dy * dy);
+                bounds.minX = Math.min(bounds.minX, v1.x, v2.x); bounds.maxX = Math.max(bounds.maxX, v1.x, v2.x);
+                bounds.minY = Math.min(bounds.minY, v1.y, v2.y); bounds.maxY = Math.max(bounds.maxY, v1.y, v2.y);
+              }
+            }
+            break;
+          }
+          case 'ARC':
+            if (e.radius && e.startAngle !== undefined && e.endAngle !== undefined) {
+              const angleDiff = Math.abs(e.endAngle - e.startAngle); totalLength += e.radius * angleDiff;
+              bounds.minX = Math.min(bounds.minX, e.center.x - e.radius); bounds.maxX = Math.max(bounds.maxX, e.center.x + e.radius);
+              bounds.minY = Math.min(bounds.minY, e.center.y - e.radius); bounds.maxY = Math.max(bounds.maxY, e.center.y + e.radius);
+            }
+            break;
+          case 'CIRCLE':
+            if (e.radius) {
+              totalLength += 2 * Math.PI * e.radius;
+              bounds.minX = Math.min(bounds.minX, e.center.x - e.radius); bounds.maxX = Math.max(bounds.maxX, e.center.x + e.radius);
+              bounds.minY = Math.min(bounds.minY, e.center.y - e.radius); bounds.maxY = Math.max(bounds.maxY, e.center.y + e.radius);
+            }
+            break;
+          case 'INSERT': {
+            const pos = e.insertionPoint || e.position; if (pos) { bounds.minX = Math.min(bounds.minX, pos.x); bounds.maxX = Math.max(bounds.maxX, pos.x); bounds.minY = Math.min(bounds.minY, pos.y); bounds.maxY = Math.max(bounds.maxY, pos.y); totalLength += 10; }
+            break;
+          }
+        }
+      }
+      const boundingArea = bounds.minX !== Infinity ? (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY) : 0;
+      layerMetrics.set(lname, { totalLength, bounds, boundingArea, entityCount: ents.length, entityTypes: types, entities: ents });
+    }
+    const layersToRemove = new Set();
+    const names = Array.from(layerGroups.keys());
+    for (let i = 0; i < names.length; i++) {
+      for (let j = i + 1; j < names.length; j++) {
+        const l1 = names[i], l2 = names[j]; if (layersToRemove.has(l1) || layersToRemove.has(l2)) continue;
+        const m1 = layerMetrics.get(l1), m2 = layerMetrics.get(l2); if (!m1 || !m2) continue;
+        const b1 = m1.bounds, b2 = m2.bounds; if (b1.minX === Infinity || b2.minX === Infinity) continue;
+        const ox1 = Math.max(b1.minX, b2.minX), ox2 = Math.min(b1.maxX, b2.maxX), oy1 = Math.max(b1.minY, b2.minY), oy2 = Math.min(b1.maxY, b2.maxY);
+        if (ox1 >= ox2 || oy1 >= oy2) continue;
+        const oArea = (ox2 - ox1) * (oy2 - oy1);
+        const r1 = m1.boundingArea > 0 ? oArea / m1.boundingArea : 0;
+        const r2 = m2.boundingArea > 0 ? oArea / m2.boundingArea : 0;
+        const isInterior = (name) => {
+          const keys = ['FURNITURE', 'CHAIR', 'TABLE', 'DESK', 'BED', 'CABINET', 'SHELF', 'FIXTURE', 'APPLIANCE', 'EQUIP', 'SYMBOL', 'BLOCK', 'DETAIL', 'PATTERN', 'FILL', 'SHADE', 'INTERIOR', 'ROOM', 'SPACE', 'ELEV', 'SECTION', 'PLAN', 'VIEW'];
+          const upper = (name || '').toUpperCase();
+          return keys.some(k => upper.includes(k));
+        };
+        let overlapThreshold = 0.6; let similarityThreshold = 0.7;
+        if (isInterior(l1) || isInterior(l2)) { overlapThreshold = 0.4; similarityThreshold = 0.5; }
+        if (r1 > overlapThreshold || r2 > overlapThreshold) {
+          const sim = calculateEntityTypeSimilarity(m1.entities, m2.entities);
+          if (sim > similarityThreshold) {
+            const p1 = calculateLayerPriority(l1, m1); const p2 = calculateLayerPriority(l2, m2);
+            if (p1 > p2) layersToRemove.add(l2); else layersToRemove.add(l1);
+          }
+        }
+      }
+    }
+    const consolidated = entities.filter(e => !layersToRemove.has(e.layer));
+    console.log(`Comprehensive consolidation: ${entities.length} → ${consolidated.length} entities; removed ${layersToRemove.size} overlapping layers`);
+    return consolidated;
   };
 
   const entityHandlers = {
@@ -662,7 +898,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
       return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke}/>`;
     },
-
     // ARC: (e, color, stroke, transforms) => {
     //   if (!e.center || !Number.isFinite(e.radius)) return null;
 
@@ -700,21 +935,20 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     //   return `<path d="M ${round(x1)} ${round(y1)} A ${round(radius)} ${round(radius)} 0 ${largeArc} ${sweepFlag} ${round(x2)} ${round(y2)}" ${arcStroke}/>`;
     //   // return `<path d="M ${round(x1)} ${round(y1)} A ${round(radius)} ${round(radius)} 0 ${largeArc} ${sweepFlag} ${round(x2)} ${round(y2)}" ${stroke}/>`;
     // },
+    CIRCLE: (e, color, stroke, transforms) => {
+      if (!e.center || !Number.isFinite(e.radius)) return null;
 
-    // CIRCLE: (e, color, stroke, transforms) => {
-    //   if (!e.center || !Number.isFinite(e.radius)) return null;
+      const [cx, cy] = applyTransform(e.center.x, e.center.y, transforms);
 
-    //   const [cx, cy] = applyTransform(e.center.x, e.center.y, transforms);
+      const originalRadius = e.radius;
 
-    //   updateBounds(cx - e.radius, cy - e.radius, 'CIRCLE', e.handle);
-    //   updateBounds(cx + e.radius, cy + e.radius, 'CIRCLE', e.handle);
+      // updateBounds(cx - e.radius, cy - e.radius, 'CIRCLE', e.handle);
+      // updateBounds(cx + e.radius, cy + e.radius, 'CIRCLE', e.handle);
+      updateBounds(cx - originalRadius, cy - originalRadius, 'CIRCLE', e.handle);
+      updateBounds(cx + originalRadius, cy + originalRadius, 'CIRCLE', e.handle);
 
-    //   // Use stroke-only rendering for circles, no fill
-    //   const circleStroke = stroke.replace(/fill="[^"]*"/, 'fill="none"');
-    //   return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(e.radius)}" ${circleStroke}/>`;
-    //   // return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(e.radius)}" ${stroke}/>`;
-    // },
-
+      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(originalRadius)}" fill="yellow" />`;
+    },
     // ELLIPSE: (e, color, stroke, transforms) => {
     //   if (!e.center || !e.majorAxisEndPoint) return null;
 
@@ -732,11 +966,12 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     //   return `<ellipse cx="${round(cx)}" cy="${round(cy)}" rx="${round(rx)}" ry="${round(ry)}" transform="rotate(${round(angle)} ${round(cx)} ${round(cy)})" ${ellipseStroke}/>`;
     //   // return `<ellipse cx="${round(cx)}" cy="${round(cy)}" rx="${round(rx)}" ry="${round(ry)}" transform="rotate(${round(angle)} ${round(cx)} ${round(cy)})" ${stroke}/>`;
     // },
-
     LWPOLYLINE: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
 
-      const points = e.vertices.map(v => {
+      const simplifiedVertices = simplifyPolyline(e.vertices, 0.1);
+
+      const points = simplifiedVertices.map(v => {
         const [x, y] = applyTransform(v.x, v.y, transforms);
         updateBounds(x, y, 'LWPOLYLINE', e.handle);
         return `${round(x)},${round(y)}`;
@@ -749,9 +984,11 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     POLYGON: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 3) return null;
 
-      const points = e.vertices.map(v => {
+      const simplifiedVertices = simplifyPolyline(e.vertices, 0.1);
+
+      const points = simplifiedVertices.map(v => {
         const [x, y] = applyTransform(v.x, v.y, transforms);
-        updateBounds(x, y, 'POLYGON', e.handle);
+        updateBounds(x, y, 'LWPOLYLINE', e.handle);
         return `${round(x)},${round(y)}`;
       });
 
@@ -761,9 +998,11 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     POLYLINE: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
 
-      const points = e.vertices.map(v => {
+      const simplifiedVertices = simplifyPolyline(e.vertices, 0.1);
+
+      const points = simplifiedVertices.map(v => {
         const [x, y] = applyTransform(v.x, v.y, transforms);
-        updateBounds(x, y, 'POLYLINE', e.handle);
+        updateBounds(x, y, 'LWPOLYLINE', e.handle);
         return `${round(x)},${round(y)}`;
       });
 
@@ -1020,111 +1259,22 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
       return items.length > 0 ? items.join('') : null;
     },
-
     MLINE: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
-
       const items = [];
-      const numLines = e.numberOfLines || e.elements?.length || 2;
-      const spacing = e.lineSpacing || 10;
 
       for (let i = 0; i < e.vertices.length - 1; i++) {
         const start = e.vertices[i];
         const end = e.vertices[i + 1];
-
         if (!start || !end) continue;
 
-        const dx = end.x - start.x;
-        const dy = end.y - start.y;
-        const length = Math.sqrt(dx * dx + dy * dy);
-
-        if (length === 0) continue;
-
-        const perpX = -dy / length;
-        const perpY = dx / length;
-
-        for (let lineIndex = 0; lineIndex < numLines; lineIndex++) {
-          const offset = (lineIndex - (numLines - 1) / 2) * spacing;
-
-          const startX = start.x + perpX * offset;
-          const startY = start.y + perpY * offset;
-          const endX = end.x + perpX * offset;
-          const endY = end.y + perpY * offset;
-
-          const [x1, y1] = applyTransform(startX, startY, transforms);
-          const [x2, y2] = applyTransform(endX, endY, transforms);
-
-          updateBounds(x1, y1, 'MLINE', e.handle);
-          updateBounds(x2, y2, 'MLINE', e.handle);
-
-          let lineStroke = stroke;
-          if (lineIndex === 0 || lineIndex === numLines - 1) {
-            lineStroke = stroke;
-          } else {
-            lineStroke = stroke + ' stroke-dasharray="3,3"';
-          }
-
-          items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${lineStroke}/>`);
-        }
-      }
-
-      if (e.startCap || e.endCap) {
-        const firstVertex = e.vertices[0];
-        const lastVertex = e.vertices[e.vertices.length - 1];
-
-        if (firstVertex && e.startCap && e.vertices.length > 1) {
-          const secondVertex = e.vertices[1];
-          const dx = secondVertex.x - firstVertex.x;
-          const dy = secondVertex.y - firstVertex.y;
-          const length = Math.sqrt(dx * dx + dy * dy);
-
-          if (length > 0) {
-            const perpX = -dy / length;
-            const perpY = dx / length;
-            const halfWidth = (numLines - 1) * spacing / 2;
-
-            const capStart = {
-              x: firstVertex.x + perpX * halfWidth,
-              y: firstVertex.y + perpY * halfWidth
-            };
-            const capEnd = {
-              x: firstVertex.x - perpX * halfWidth,
-              y: firstVertex.y - perpY * halfWidth
-            };
-
-            const [cx1, cy1] = applyTransform(capStart.x, capStart.y, transforms);
-            const [cx2, cy2] = applyTransform(capEnd.x, capEnd.y, transforms);
-
-            items.push(`<line x1="${round(cx1)}" y1="${round(cy1)}" x2="${round(cx2)}" y2="${round(cy2)}" ${stroke}/>`);
-          }
-        }
-
-        if (lastVertex && e.endCap && e.vertices.length > 1) {
-          const secondLastVertex = e.vertices[e.vertices.length - 2];
-          const dx = lastVertex.x - secondLastVertex.x;
-          const dy = lastVertex.y - secondLastVertex.y;
-          const length = Math.sqrt(dx * dx + dy * dy);
-
-          if (length > 0) {
-            const perpX = -dy / length;
-            const perpY = dx / length;
-            const halfWidth = (numLines - 1) * spacing / 2;
-
-            const capStart = {
-              x: lastVertex.x + perpX * halfWidth,
-              y: lastVertex.y + perpY * halfWidth
-            };
-            const capEnd = {
-              x: lastVertex.x - perpX * halfWidth,
-              y: lastVertex.y - perpY * halfWidth
-            };
-
-            const [cx1, cy1] = applyTransform(capStart.x, capStart.y, transforms);
-            const [cx2, cy2] = applyTransform(capEnd.x, capEnd.y, transforms);
-
-            items.push(`<line x1="${round(cx1)}" y1="${round(cy1)}" x2="${round(cx2)}" y2="${round(cy2)}" ${stroke}/>`);
-          }
-        }
+        // Just draw the centerline, ignore the multiple parallel lines
+        const [x1, y1] = applyTransform(start.x, start.y, transforms);
+        const [x2, y2] = applyTransform(end.x, end.y, transforms);
+        updateBounds(x1, y1, 'MLINE', e.handle);
+        updateBounds(x2, y2, 'MLINE', e.handle);
+        const mlineStroke = stroke.replace(/stroke-width="[^"]*"/, 'stroke-width="2"');
+        items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${mlineStroke}/>`);
       }
 
       return items.length > 0 ? items.join('') : null;
@@ -1324,13 +1474,12 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       } else {
         strokeColor = `rgb(${color.r},${color.g},${color.b})`;
         strokeWidth_final = strokeWidth;
-        // Different fill strategies based on entity type
         if (['CIRCLE', 'ELLIPSE', 'ARC'].includes(e.type)) {
           fillColor = 'none'; // Never fill circular entities
         } else if (['POLYGON', 'SOLID', '3DFACE', 'HATCH'].includes(e.type)) {
-          fillColor = `rgba(${color.r},${color.g},${color.b},0.1)`; // Light fill for closed shapes
+          fillColor = `rgba(${color.r},${color.g},${color.b},0.1)`;
         } else {
-          fillColor = 'none'; // No fill for lines and other entities
+          fillColor = 'none';
         }
 
         strokeDashArray = 'none';
@@ -1462,6 +1611,28 @@ ${regularElements.join('\n')}
 
     const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
 
+    // When flattening, inline the block geometry instead of <use/defs>
+    if (config.flattenToSingleLayer) {
+      const childTransforms = [
+        ...currentTransforms,
+        { x: insertPoint.x, y: insertPoint.y, rotation, scaleX: xScale, scaleY: yScale }
+      ];
+      const childContent = [];
+      for (const be of blockEntities) {
+        if (!be?.type) continue;
+        // Force child entities to inherit the INSERT's layer to have a single visible layer
+        const beClone = { ...be, layer: e.layer };
+        const element = generateElement(beClone, `Block_${blockName}`, childTransforms, highlightedEntityHandle);
+        if (element) childContent.push(element);
+      }
+      if (childContent.length === 0) return null;
+      const dataHandle = e.handle ? `data-handle="${e.handle}"` : '';
+      const entityClass = isHighlighted ?
+        `class="dwg-entity deletable-entity insert-block highlighted-entity"` :
+        `class="dwg-entity deletable-entity insert-block"`;
+      return `<g id="${e.handle || groupId}" ${dataHandle} ${entityClass}>${childContent.join('')}</g>`;
+    }
+
     let strokeStyle, fillStyle, strokeWidth_final;
     if (isHighlighted) {
       strokeStyle = 'stroke="red"';
@@ -1486,6 +1657,10 @@ ${regularElements.join('\n')}
   };
 
   const generateBlockDefinitions = () => {
+    if (config.flattenToSingleLayer) {
+      // No <defs> when flattening blocks inline
+      return '';
+    }
     const defs = [];
 
     for (const [blockName, blockEntities] of blockDefinitions) {
@@ -1495,7 +1670,6 @@ ${regularElements.join('\n')}
       for (const entity of blockEntities) {
         if (!entity?.type) continue;
 
-        // Skip unwanted circular entities in blocks
         if (isUnwantedCircularEntity(entity)) {
           console.log(`Skipping ${entity.type} in block ${blockName}`);
           continue;
@@ -1557,45 +1731,58 @@ ${defs.join('\n')}
   const generateSVGContent = () => {
     const content = [];
     const processedHandles = new Set();
+    let usedEntities = [];
 
     if (Array.isArray(db.entities) && db.entities.length > 0) {
-      const filteredEntities = db.entities.filter(entity => {
-        if (entity.layer === 'G-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') {
-          return false;
-        }
+      console.log(`Starting with ${db.entities.length} entities`);
 
-        // Skip unwanted circular entities
-        if (isUnwantedCircularEntity(entity)) {
-          return false;
-        }
+      // let filteredEntities = db.entities.filter(entity => {
+      //   if (entity.layer === 'G-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') {
+      //     return false;
+      //   }
 
-        // Skip duplicate handles
-        if (entity.handle && processedHandles.has(entity.handle)) {
-          console.log(`Skipping duplicate handle: ${entity.handle}`);
-          return false;
-        }
+      //   if (isUnwantedCircularEntity(entity)) {
+      //     return false;
+      //   }
+      //   if (entity.handle && processedHandles.has(entity.handle)) {
+      //     console.log(`Skipping duplicate handle: ${entity.handle}`);
+      //     return false;
+      //   }
 
-        if (entity.handle) {
-          processedHandles.add(entity.handle);
-        }
+      //   if (entity.handle) {
+      //     processedHandles.add(entity.handle);
+      //   }
 
-        // Skip ARC entities that are actually full circles to prevent duplicates
+      let filteredEntities = db.entities.filter(entity => {
+        if (!entity?.type) return false;
+        if (entity.layer === 'G-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') return false;
+        if (isUnwantedCircularEntity(entity)) return false;
+        if (entity.handle && processedHandles.has(entity.handle)) return false;
+        if (entity.handle) processedHandles.add(entity.handle);
         if (entity.type === 'ARC' && entity.startAngle !== undefined && entity.endAngle !== undefined) {
           const angleDiff = Math.abs(entity.endAngle - entity.startAngle);
-          if (angleDiff >= 2 * Math.PI - 0.001) {
-            console.log(`Filtering out full-circle ARC entity: ${entity.handle}`);
-            return false;
-          }
+          if (angleDiff >= 2 * Math.PI - 0.001) return false;
         }
+        // Apply full renderability checks (visibility, flags, drop lists)
+        const layerInfo = tables.LAYER?.entries?.reduce((acc, layer) => { acc[layer.name] = layer; return acc; }, {}) || {};
+        return shouldRenderEntity(entity, layerInfo);
 
-        return true;
+        // if (!isSignificantEntity(entity, bounds)) {
+        //   return false;
+        // }
+
+        // return true;
       });
 
-      console.log(`Processing ${filteredEntities.length} entities (filtered from ${db.entities.length})`);
-      console.log(`Filtered out ${db.entities.length - filteredEntities.length} unwanted entities`);
+      filteredEntities = removePreciseDuplicates(filteredEntities);
+      filteredEntities = consolidateBoundaryLayers(filteredEntities);
+      filteredEntities = mergeOverlappingPolylines(filteredEntities);
+      filteredEntities = deduplicateLines(filteredEntities);
+      filteredEntities = consolidateOverlappingLayers(filteredEntities);
 
-      // const originalEntities = db.entities;
-      // db.entities = filteredEntities;
+      usedEntities = filteredEntities;
+
+      // filteredEntities = optimizeEntityRendering(filteredEntities);
 
       const modelContent = processEntities(filteredEntities, '*Model_Space', transformStack);
       content.push(...modelContent);
@@ -1603,11 +1790,13 @@ ${defs.join('\n')}
       console.warn('No db.entities found or empty array');
     }
 
-    return content;
+    // return content;
+    return { content, usedEntities };
   };
 
   const blockDefs = generateBlockDefinitions();
-  const svgElements = generateSVGContent();
+  // const svgElements = generateSVGContent();
+  const { content: svgElements, usedEntities } = generateSVGContent();
   const svgContent = svgElements.join('\n');
 
   if (!bounds.valid || bounds.minX === Infinity || bounds.maxX === -Infinity) {
@@ -1621,7 +1810,8 @@ ${defs.join('\n')}
   }
 
   const allPoints = [];
-  for (const entity of db.entities || []) {
+  // for (const entity of db.entities || []) {
+  for (const entity of (usedEntities || db.entities || [])) {
     if (entity.layer === '-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') continue;
 
     if (entity.startPoint) allPoints.push([entity.startPoint.x, entity.startPoint.y]);
@@ -1661,84 +1851,8 @@ ${defs.join('\n')}
 
   console.log('Total unique entities processed for bounds:', processedForBounds.size);
 
-  const enhancedSvgStyles = `
-  <style>
-    .dwg-svg-container {
-      width: 100%;
-      height: var(--container-height, 600px);
-      max-height: 90vh;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      overflow: hidden;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #f8f9fa;
-      position: relative;
-    }
-
-    .dwg-svg-container svg {
-      max-width: 100%;
-      max-height: 100%;
-      width: auto;
-      height: auto;
-      transition: all 0.3s ease;
-    }
-
-    .dwg-svg-info {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: rgba(0,0,0,0.7);
-      color: white;
-      padding: 5px 10px;
-      border-radius: 4px;
-      font-size: 12px;
-      font-family: monospace;
-    }
-
-    .dwg-entity:hover {
-      opacity: 0.7 !important;
-      stroke-width: 3 !important;
-    }
-    .deletable-entity {
-      cursor: pointer;
-    }
-    .clickable-entity:hover {
-      stroke: #ff6b6b !important;
-      stroke-width: 4 !important;
-      opacity: 0.8 !important;
-    }
-    .insert-block:hover {
-      stroke: #ff6b6b !important;
-      stroke-width: 3 !important;
-      fill: rgba(255, 107, 107, 0.2) !important;
-    }
-    .highlighted-entity {
-      stroke: red !important;
-      stroke-width: 6 !important;
-      fill: rgba(255, 0, 0, 0.3) !important;
-      animation: pulse-highlight 1s infinite alternate;
-    }
-    @keyframes pulse-highlight {
-      from { opacity: 0.8; }
-      to { opacity: 1; }
-    }
-    .entity-tooltip {
-      position: absolute;
-      background: rgba(0, 0, 0, 0.8);
-      color: white;
-      padding: 6px 10px;
-      border-radius: 4px;
-      font-size: 11px;
-      pointer-events: none;
-      z-index: 1000;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    }
-  </style>
-  `;
-
-  const tightBounds = calculateTightBounds(db.entities || []);
+  // const tightBounds = calculateTightBounds(db.entities || []);
+  const tightBounds = calculateTightBounds(usedEntities || db.entities || []);
 
   const displayDimensions = calculateOptimalDisplaySize(tightBounds);
   console.log('Display dimensions calculated:', displayDimensions);
@@ -1750,19 +1864,26 @@ ${defs.join('\n')}
   console.log('Fit-to-viewbox transform:', fit);
 
   let svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${targetWidth} ${targetHeight}">
-    ${enhancedSvgStyles}
     ${blockDefs}
     <g transform="${fit.transform}">
       ${svgContent}
     </g>
   </svg>`;
 
-  // Remove excessive whitespace & comments, and trim decimals to 3 places
   svgString = svgString
-    .replace(/>\s+</g, '><')          // Remove whitespace between tags
-    .replace(/\s{2,}/g, ' ')          // Collapse multiple spaces
-    .replace(/<!--.*?-->/g, '')       // Remove comments
-    .replace(/(\d+\.\d{3})\d+/g, '$1'); // Limit decimals
+    .replace(/>\s+</g, '><')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/<!--.*?-->/g, '')
+    .replace(/(\d+\.\d{3})\d+/g, '$1')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*=\s*"/g, '="')
+    .replace(/"\s+/g, '" ')
+    .replace(/stroke-width="[^"]*"/g, (match) => {
+      const value = match.match(/stroke-width="([^"]*)"/)[1];
+      return `stroke-width="${Math.max(round(parseFloat(value) || 1, 1), 0.5)}"`;
+    })
+    .replace(/fill="none"\s+stroke="none"/g, 'style="display:none"')
+    .replace(/opacity="0"/g, 'style="display:none"');
 
   return svgString;
 }
