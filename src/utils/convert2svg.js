@@ -1990,7 +1990,6 @@ ${defs.join('\n')}
       filteredEntities = removeIdenticalEntities(filteredEntities);
       filteredEntities = consolidateBlockInstances(filteredEntities);
       filteredEntities = optimizeCircularEntities(filteredEntities);
-
       filteredEntities = removePreciseDuplicates(filteredEntities);
       filteredEntities = consolidateBoundaryLayers(filteredEntities);
       filteredEntities = mergeOverlappingPolylines(filteredEntities);
@@ -2006,12 +2005,10 @@ ${defs.join('\n')}
       console.warn('No db.entities found or empty array');
     }
 
-    // return content;
     return { content, usedEntities };
   };
 
   const blockDefs = generateBlockDefinitions();
-  // const svgElements = generateSVGContent();
   const { content: svgElements, usedEntities } = generateSVGContent();
   const svgContent = svgElements.join('\n');
 
@@ -2053,11 +2050,6 @@ ${defs.join('\n')}
   }
 
   console.log(`Final processed ${processedElements} elements`);
-  console.log('Layer visibility summary:', {
-    visibleLayers: visibleLayers,
-    totalSkippedLayers: skippedByLayer.size,
-    skippedLayerNames: Array.from(skippedByLayer.keys())
-  });
 
   if (!bounds.valid || bounds.minX === Infinity) {
     console.warn('No valid bounds found, using default');
@@ -2066,7 +2058,6 @@ ${defs.join('\n')}
 
   console.log('Total unique entities processed for bounds:', processedForBounds.size);
 
-  // const tightBounds = calculateTightBounds(db.entities || []);
   const tightBounds = calculateTightBounds(usedEntities || db.entities || []);
 
   const displayDimensions = calculateOptimalDisplaySize(tightBounds);
