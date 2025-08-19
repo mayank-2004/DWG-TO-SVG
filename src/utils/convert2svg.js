@@ -484,6 +484,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   ]);
 
   const isLayerVisible = (layerName) => {
+    if (config.flattenToSingleLayer) {
+      // When flattening, ignore layer visibility and render everything that survived filtering
+      return true;
+    }
     if (shouldShowAllLayers) {
       return true;
     }
@@ -607,6 +611,21 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   }
 
   const getEntityColor = (entity, layers = {}) => {
+    if (config.flattenToSingleLayer) {
+      // In flattened mode, ignore layer-based color to keep a consistent single-layer feel
+      if (entity.color && typeof entity.color === 'object') return entity.color;
+      if (entity.colorIndex !== undefined && entity.colorIndex !== 256 && entity.colorIndex !== 0) {
+        const colorPalette = [
+          { r: 0, g: 0, b: 0 }, { r: 255, g: 0, b: 0 }, { r: 255, g: 255, b: 0 },
+          { r: 0, g: 255, b: 0 }, { r: 0, g: 255, b: 255 }, { r: 0, g: 0, b: 255 },
+          { r: 255, g: 0, b: 255 }, { r: 255, g: 255, b: 255 }, { r: 128, g: 128, b: 128 },
+          { r: 192, g: 192, b: 192 }, { r: 255, g: 127, b: 0 }, { r: 127, g: 255, b: 127 },
+          { r: 127, g: 127, b: 255 }, { r: 255, g: 127, b: 127 }, { r: 255, g: 255, b: 127 }
+        ];
+        return colorPalette[entity.colorIndex] || { r: 0, g: 0, b: 0 };
+      }
+      return { r: 0, g: 0, b: 0 };
+    }
     // Handle layer-specific colors first
     if (entity.layer && layers[entity.layer]) {
       const layerInfo = layers[entity.layer];
@@ -665,6 +684,173 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
     // Default to black for lines, but use none fill for shapes
     return { r: 0, g: 0, b: 0 };
+  };
+
+  // --- New spatial hashing and identity dedup helpers (from user snippet) ---
+  const getEntityBounds = (entity) => {
+    switch (entity.type) {
+      case 'CIRCLE': {
+        if (!entity.center || !entity.radius) return null;
+        return {
+          minX: entity.center.x - entity.radius,
+          maxX: entity.center.x + entity.radius,
+          minY: entity.center.y - entity.radius,
+          maxY: entity.center.y + entity.radius
+        };
+      }
+      case 'LINE': {
+        const start = entity.startPoint || entity.start;
+        const end = entity.endPoint || entity.end;
+        if (!start || !end) return null;
+        return {
+          minX: Math.min(start.x, end.x),
+          maxX: Math.max(start.x, end.x),
+          minY: Math.min(start.y, end.y),
+          maxY: Math.max(start.y, end.y)
+        };
+      }
+      case 'LWPOLYLINE':
+      case 'POLYLINE': {
+        if (!Array.isArray(entity.vertices) || entity.vertices.length === 0) return null;
+        const xs = entity.vertices.map(v => v.x);
+        const ys = entity.vertices.map(v => v.y);
+        return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+      }
+      default:
+        return null;
+    }
+  };
+
+  const spatialHashEntities = (entities, gridSize = 50) => {
+    const grid = new Map();
+    const add = (key, ent) => { if (!grid.has(key)) grid.set(key, []); grid.get(key).push(ent); };
+    for (const entity of entities) {
+      const b = getEntityBounds(entity);
+      if (!b) continue;
+      const minGX = Math.floor(b.minX / gridSize);
+      const maxGX = Math.floor(b.maxX / gridSize);
+      const minGY = Math.floor(b.minY / gridSize);
+      const maxGY = Math.floor(b.maxY / gridSize);
+      for (let gx = minGX; gx <= maxGX; gx++) {
+        for (let gy = minGY; gy <= maxGY; gy++) {
+          add(`${gx}_${gy}`, entity);
+        }
+      }
+    }
+    return grid;
+  };
+
+  const areEntitiesIdentical = (e1, e2, tolerance = 0.1) => {
+    if (!e1 || !e2) return false;
+    if (e1.type !== e2.type) return false;
+    // In flattened mode, ignore layer comparison to catch duplicates across layers
+    if (!config.flattenToSingleLayer && e1.layer !== e2.layer) return false;
+    switch (e1.type) {
+      case 'CIRCLE': {
+        if (!e1.center || !e2.center) return false;
+        return Math.abs(e1.center.x - e2.center.x) < tolerance && Math.abs(e1.center.y - e2.center.y) < tolerance && Math.abs((e1.radius || 0) - (e2.radius || 0)) < tolerance;
+      }
+      case 'LINE': {
+        const s1 = e1.startPoint || e1.start; const t1 = e1.endPoint || e1.end;
+        const s2 = e2.startPoint || e2.start; const t2 = e2.endPoint || e2.end;
+        if (!s1 || !t1 || !s2 || !t2) return false;
+        const forward = Math.abs(s1.x - s2.x) < tolerance && Math.abs(s1.y - s2.y) < tolerance && Math.abs(t1.x - t2.x) < tolerance && Math.abs(t1.y - t2.y) < tolerance;
+        const reverse = Math.abs(s1.x - t2.x) < tolerance && Math.abs(s1.y - t2.y) < tolerance && Math.abs(t1.x - s2.x) < tolerance && Math.abs(t1.y - s2.y) < tolerance;
+        return forward || reverse;
+      }
+      case 'LWPOLYLINE':
+      case 'POLYLINE': {
+        if (!Array.isArray(e1.vertices) || !Array.isArray(e2.vertices)) return false;
+        if (e1.vertices.length !== e2.vertices.length) return false;
+        for (let i = 0; i < e1.vertices.length; i++) {
+          const v1 = e1.vertices[i]; const v2 = e2.vertices[i];
+          if (Math.abs(v1.x - v2.x) >= tolerance || Math.abs(v1.y - v2.y) >= tolerance) return false;
+        }
+        return true;
+      }
+      default:
+        return false;
+    }
+  };
+
+  const removeIdenticalEntities = (entities) => {
+    console.log(`Starting identical entity removal with ${entities.length} entities`);
+    const grid = spatialHashEntities(entities, 100);
+    const toRemove = new Set();
+    const processed = new Set();
+    for (let i = 0; i < entities.length; i++) {
+      if (processed.has(i) || toRemove.has(i)) continue;
+      const e = entities[i];
+      const b = getEntityBounds(e); if (!b) { processed.add(i); continue; }
+      const key = `${Math.floor(b.minX / 100)}_${Math.floor(b.minY / 100)}`;
+      const nearby = grid.get(key) || [];
+      for (const other of nearby) {
+        const j = entities.indexOf(other);
+        if (j <= i || processed.has(j) || toRemove.has(j)) continue;
+        if (areEntitiesIdentical(e, other, 0.5)) { toRemove.add(j); }
+      }
+      processed.add(i);
+    }
+    const result = entities.filter((_, idx) => !toRemove.has(idx));
+    console.log(`Identical entity removal: ${entities.length} → ${result.length} entities`);
+    return result;
+  };
+
+  const consolidateBlockInstances = (entities) => {
+    const inserts = entities.filter(e => e.type === 'INSERT');
+    const others = entities.filter(e => e.type !== 'INSERT');
+    if (inserts.length === 0) return entities;
+    const blockGroups = new Map();
+    for (const ins of inserts) {
+      const key = `${ins.blockName || ins.name || 'UNKNOWN'}_${ins.layer || ''}`;
+      if (!blockGroups.has(key)) blockGroups.set(key, []);
+      blockGroups.get(key).push(ins);
+    }
+    const consolidated = [];
+    let removedCount = 0;
+    for (const [, instances] of blockGroups) {
+      if (instances.length <= 1) { consolidated.push(...instances); continue; }
+      const spatialGroups = [];
+      const tol = 10;
+      for (const inst of instances) {
+        const ip = inst.insertionPoint || inst.position; if (!ip) { consolidated.push(inst); continue; }
+        let placed = false;
+        for (const group of spatialGroups) {
+          const center = group[0].insertionPoint || group[0].position; if (!center) continue;
+          if (Math.abs(ip.x - center.x) < tol && Math.abs(ip.y - center.y) < tol) { group.push(inst); placed = true; break; }
+        }
+        if (!placed) spatialGroups.push([inst]);
+      }
+      for (const g of spatialGroups) { consolidated.push(g[0]); removedCount += (g.length - 1); }
+    }
+    if (removedCount > 0) console.log(`Block consolidation: removed ${removedCount} duplicate block instances`);
+    return [...others, ...consolidated];
+  };
+
+  const optimizeCircularEntities = (entities) => {
+    const circles = entities.filter(e => e.type === 'CIRCLE');
+    const others = entities.filter(e => e.type !== 'CIRCLE');
+    if (circles.length === 0) return entities;
+    const groups = new Map();
+    for (const c of circles) {
+      if (!c.center || !c.radius) continue;
+      const key = `${Math.round(c.center.x)}_${Math.round(c.center.y)}_${Math.round(c.radius * 10)}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(c);
+    }
+    const optimized = [];
+    let removed = 0;
+    for (const [, group] of groups) {
+      if (group.length === 1) { optimized.push(group[0]); continue; }
+      const best = group.reduce((a, b) => {
+        const aScore = (a.layer ? 1 : 0) + (a.color ? 1 : 0) + (a.handle ? 1 : 0);
+        const bScore = (b.layer ? 1 : 0) + (b.color ? 1 : 0) + (b.handle ? 1 : 0);
+        return aScore >= bScore ? a : b;
+      });
+      optimized.push(best); removed += (group.length - 1);
+    }
+    if (removed > 0) console.log(`Circle optimization: removed ${removed} duplicate circles`);
+    return [...others, ...optimized];
   };
 
   // Geometry utilities and dedup helpers to consolidate to a single visual layer
@@ -1802,11 +1988,21 @@ ${defs.join('\n')}
       });
 
       // Consolidate and deduplicate for single-layer output
+      // 1) Coarse deduplication
       filteredEntities = removePreciseDuplicates(filteredEntities);
       filteredEntities = consolidateBoundaryLayers(filteredEntities);
       filteredEntities = mergeOverlappingPolylines(filteredEntities);
       filteredEntities = deduplicateLines(filteredEntities);
       filteredEntities = consolidateOverlappingLayers(filteredEntities);
+      // 2) User-supplied optimizations
+      filteredEntities = removeIdenticalEntities(filteredEntities);
+      filteredEntities = consolidateBlockInstances(filteredEntities);
+      filteredEntities = optimizeCircularEntities(filteredEntities);
+
+      // 3) Unify all layers for a true single-layer SVG feel
+      if (config.flattenToSingleLayer) {
+        filteredEntities = filteredEntities.map(e => ({ ...e, layer: '0' }));
+      }
 
       usedEntities = filteredEntities;
 
