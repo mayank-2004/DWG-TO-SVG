@@ -540,6 +540,243 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     return false;
   };
 
+  const spatialHashEntities = (entities, gridSize = 50) => {
+    const grid = new Map();
+    const getGridKey = (x, y) => `${Math.floor(x / gridSize)}_${Math.floor(y / gridSize)}`;
+
+    entities.forEach(entity => {
+      const bounds = getEntityBounds(entity);
+      if (bounds) {
+        const minGridX = Math.floor(bounds.minX / gridSize);
+        const maxGridX = Math.floor(bounds.maxX / gridSize);
+        const minGridY = Math.floor(bounds.minY / gridSize);
+        const maxGridY = Math.floor(bounds.maxY / gridSize);
+
+        for (let gx = minGridX; gx <= maxGridX; gx++) {
+          for (let gy = minGridY; gy <= maxGridY; gy++) {
+            const key = `${gx}_${gy}`;
+            if (!grid.has(key)) grid.set(key, []);
+            grid.get(key).push(entity);
+          }
+        }
+      }
+    });
+
+    return grid;
+  };
+
+  const getEntityBounds = (entity) => {
+    switch (entity.type) {
+      case 'CIRCLE':
+        if (!entity.center || !entity.radius) return null;
+        return {
+          minX: entity.center.x - entity.radius,
+          maxX: entity.center.x + entity.radius,
+          minY: entity.center.y - entity.radius,
+          maxY: entity.center.y + entity.radius
+        };
+      case 'LINE':
+        const start = entity.startPoint || entity.start;
+        const end = entity.endPoint || entity.end;
+        if (!start || !end) return null;
+        return {
+          minX: Math.min(start.x, end.x),
+          maxX: Math.max(start.x, end.x),
+          minY: Math.min(start.y, end.y),
+          maxY: Math.max(start.y, end.y)
+        };
+      case 'LWPOLYLINE':
+      case 'POLYLINE':
+        if (!entity.vertices || entity.vertices.length === 0) return null;
+        const xs = entity.vertices.map(v => v.x);
+        const ys = entity.vertices.map(v => v.y);
+        return {
+          minX: Math.min(...xs),
+          maxX: Math.max(...xs),
+          minY: Math.min(...ys),
+          maxY: Math.max(...ys)
+        };
+      default:
+        return null;
+    }
+  };
+
+  const areEntitiesIdentical = (entity1, entity2, tolerance = 0.1) => {
+    if (entity1.type !== entity2.type) return false;
+    if (entity1.layer !== entity2.layer) return false;
+
+    switch (entity1.type) {
+      case 'CIRCLE':
+        if (!entity1.center || !entity2.center) return false;
+        return Math.abs(entity1.center.x - entity2.center.x) < tolerance &&
+          Math.abs(entity1.center.y - entity2.center.y) < tolerance &&
+          Math.abs(entity1.radius - entity2.radius) < tolerance;
+
+      case 'LINE':
+        const s1 = entity1.startPoint || entity1.start;
+        const e1 = entity1.endPoint || entity1.end;
+        const s2 = entity2.startPoint || entity2.start;
+        const e2 = entity2.endPoint || entity2.end;
+
+        if (!s1 || !e1 || !s2 || !e2) return false;
+
+        // Check both directions (line could be reversed)
+        const forward = Math.abs(s1.x - s2.x) < tolerance && Math.abs(s1.y - s2.y) < tolerance &&
+          Math.abs(e1.x - e2.x) < tolerance && Math.abs(e1.y - e2.y) < tolerance;
+        const reverse = Math.abs(s1.x - e2.x) < tolerance && Math.abs(s1.y - e2.y) < tolerance &&
+          Math.abs(e1.x - s2.x) < tolerance && Math.abs(e1.y - s2.y) < tolerance;
+        return forward || reverse;
+
+      case 'LWPOLYLINE':
+      case 'POLYLINE':
+        if (!entity1.vertices || !entity2.vertices) return false;
+        if (entity1.vertices.length !== entity2.vertices.length) return false;
+
+        return entity1.vertices.every((v1, i) => {
+          const v2 = entity2.vertices[i];
+          return Math.abs(v1.x - v2.x) < tolerance && Math.abs(v1.y - v2.y) < tolerance;
+        });
+
+      default:
+        return false;
+    }
+  };
+
+  const removeIdenticalEntities = (entities) => {
+    console.log(`Starting identical entity removal with ${entities.length} entities`);
+
+    const grid = spatialHashEntities(entities, 100);
+    const toRemove = new Set();
+    const processed = new Set();
+
+    entities.forEach((entity, index) => {
+      if (processed.has(index) || toRemove.has(index)) return;
+
+      const bounds = getEntityBounds(entity);
+      if (!bounds) return;
+
+      const gridKey = `${Math.floor(bounds.minX / 100)}_${Math.floor(bounds.minY / 100)}`;
+      const nearbyEntities = grid.get(gridKey) || [];
+
+      nearbyEntities.forEach(otherEntity => {
+        const otherIndex = entities.indexOf(otherEntity);
+        if (otherIndex <= index || processed.has(otherIndex) || toRemove.has(otherIndex)) return;
+
+        if (areEntitiesIdentical(entity, otherEntity, 0.5)) {
+          toRemove.add(otherIndex);
+          console.log(`Marking identical ${entity.type} for removal`);
+        }
+      });
+
+      processed.add(index);
+    });
+
+    const result = entities.filter((_, index) => !toRemove.has(index));
+    console.log(`Identical entity removal: ${entities.length} → ${result.length} entities`);
+    return result;
+  };
+
+  const consolidateBlockInstances = (entities) => {
+    const insertEntities = entities.filter(e => e.type === 'INSERT');
+    const nonInsertEntities = entities.filter(e => e.type !== 'INSERT');
+
+    if (insertEntities.length === 0) return entities;
+
+    const blockGroups = new Map();
+
+    insertEntities.forEach(insert => {
+      const key = `${insert.blockName}_${insert.layer}`;
+      if (!blockGroups.has(key)) blockGroups.set(key, []);
+      blockGroups.get(key).push(insert);
+    });
+
+    const consolidated = [];
+    let removedCount = 0;
+
+    blockGroups.forEach((instances, blockKey) => {
+      if (instances.length <= 1) {
+        consolidated.push(...instances);
+        return;
+      }
+
+      // Group by spatial proximity
+      const spatialGroups = [];
+      const tolerance = 10;
+
+      instances.forEach(instance => {
+        const insertPoint = instance.insertionPoint || instance.position;
+        if (!insertPoint) {
+          consolidated.push(instance);
+          return;
+        }
+
+        let addedToGroup = false;
+        for (const group of spatialGroups) {
+          const groupCenter = group[0].insertionPoint || group[0].position;
+          if (Math.abs(insertPoint.x - groupCenter.x) < tolerance &&
+            Math.abs(insertPoint.y - groupCenter.y) < tolerance) {
+            group.push(instance);
+            addedToGroup = true;
+            break;
+          }
+        }
+
+        if (!addedToGroup) {
+          spatialGroups.push([instance]);
+        }
+      });
+
+      // Keep only one instance per spatial group
+      spatialGroups.forEach(group => {
+        consolidated.push(group[0]); // Keep the first one
+        removedCount += group.length - 1;
+      });
+    });
+
+    console.log(`Block consolidation: removed ${removedCount} duplicate block instances`);
+    return [...nonInsertEntities, ...consolidated];
+  };
+
+  const optimizeCircularEntities = (entities) => {
+    const circles = entities.filter(e => e.type === 'CIRCLE');
+    const others = entities.filter(e => e.type !== 'CIRCLE');
+
+    if (circles.length === 0) return entities;
+
+    // Group circles by position and size
+    const circleGroups = new Map();
+
+    circles.forEach(circle => {
+      if (!circle.center || !circle.radius) return;
+
+      const key = `${Math.round(circle.center.x)}_${Math.round(circle.center.y)}_${Math.round(circle.radius * 10)}`;
+      if (!circleGroups.has(key)) circleGroups.set(key, []);
+      circleGroups.get(key).push(circle);
+    });
+
+    const optimizedCircles = [];
+    let removedCount = 0;
+
+    circleGroups.forEach(group => {
+      if (group.length === 1) {
+        optimizedCircles.push(group[0]);
+      } else {
+        // Keep the circle with the most complete data
+        const best = group.reduce((a, b) => {
+          const aScore = (a.layer ? 1 : 0) + (a.color ? 1 : 0) + (a.handle ? 1 : 0);
+          const bScore = (b.layer ? 1 : 0) + (b.color ? 1 : 0) + (b.handle ? 1 : 0);
+          return aScore >= bScore ? a : b;
+        });
+
+        optimizedCircles.push(best);
+        removedCount += group.length - 1;
+      }
+    });
+
+    console.log(`Circle optimization: removed ${removedCount} duplicate circles`);
+    return [...others, ...optimizedCircles];
+  };
+
   const escapeXml = (text) => String(text).replace(/[&<>"']/g, (match) => xmlEscapeMap.get(match));
 
   const blockDefinitions = new Map();
@@ -939,11 +1176,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       if (!e.center || !Number.isFinite(e.radius)) return null;
 
       const [cx, cy] = applyTransform(e.center.x, e.center.y, transforms);
-
       const originalRadius = e.radius;
 
-      // updateBounds(cx - e.radius, cy - e.radius, 'CIRCLE', e.handle);
-      // updateBounds(cx + e.radius, cy + e.radius, 'CIRCLE', e.handle);
       updateBounds(cx - originalRadius, cy - originalRadius, 'CIRCLE', e.handle);
       updateBounds(cx + originalRadius, cy + originalRadius, 'CIRCLE', e.handle);
 
@@ -1736,23 +1970,6 @@ ${defs.join('\n')}
     if (Array.isArray(db.entities) && db.entities.length > 0) {
       console.log(`Starting with ${db.entities.length} entities`);
 
-      // let filteredEntities = db.entities.filter(entity => {
-      //   if (entity.layer === 'G-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') {
-      //     return false;
-      //   }
-
-      //   if (isUnwantedCircularEntity(entity)) {
-      //     return false;
-      //   }
-      //   if (entity.handle && processedHandles.has(entity.handle)) {
-      //     console.log(`Skipping duplicate handle: ${entity.handle}`);
-      //     return false;
-      //   }
-
-      //   if (entity.handle) {
-      //     processedHandles.add(entity.handle);
-      //   }
-
       let filteredEntities = db.entities.filter(entity => {
         if (!entity?.type) return false;
         if (entity.layer === 'G-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') return false;
@@ -1763,16 +1980,16 @@ ${defs.join('\n')}
           const angleDiff = Math.abs(entity.endAngle - entity.startAngle);
           if (angleDiff >= 2 * Math.PI - 0.001) return false;
         }
-        // Apply full renderability checks (visibility, flags, drop lists)
         const layerInfo = tables.LAYER?.entries?.reduce((acc, layer) => { acc[layer.name] = layer; return acc; }, {}) || {};
         return shouldRenderEntity(entity, layerInfo);
-
-        // if (!isSignificantEntity(entity, bounds)) {
-        //   return false;
-        // }
-
-        // return true;
       });
+
+      console.log(`After initial filtering: ${filteredEntities.length} entities`);
+
+      // Apply new optimization functions
+      filteredEntities = removeIdenticalEntities(filteredEntities);
+      filteredEntities = consolidateBlockInstances(filteredEntities);
+      filteredEntities = optimizeCircularEntities(filteredEntities);
 
       filteredEntities = removePreciseDuplicates(filteredEntities);
       filteredEntities = consolidateBoundaryLayers(filteredEntities);
@@ -1780,10 +1997,9 @@ ${defs.join('\n')}
       filteredEntities = deduplicateLines(filteredEntities);
       filteredEntities = consolidateOverlappingLayers(filteredEntities);
 
+      console.log(`After all optimizations: ${filteredEntities.length} entities`);
+
       usedEntities = filteredEntities;
-
-      // filteredEntities = optimizeEntityRendering(filteredEntities);
-
       const modelContent = processEntities(filteredEntities, '*Model_Space', transformStack);
       content.push(...modelContent);
     } else {
@@ -1810,7 +2026,6 @@ ${defs.join('\n')}
   }
 
   const allPoints = [];
-  // for (const entity of db.entities || []) {
   for (const entity of (usedEntities || db.entities || [])) {
     if (entity.layer === '-ANNO-SYMB' || entity.layer === 'A-GLAZ-CWMG') continue;
 
