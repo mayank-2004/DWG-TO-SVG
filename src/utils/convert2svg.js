@@ -27,18 +27,26 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     hideText: false,
     hidePoints: true,
     simplifySplines: true,
-    strokeWidth: 0.5,
+    strokeWidth: 6,
     textSizeMultiplier: 0.3,
     minBigTextFactor: 0.018,
     dropEntityTypes: new Set(['DIMENSION', 'LEADER', 'HATCH', 'POINT', 'ATTDEF', 'TOLERANCE', 'MLINE', 'TABLE', 'VIEWPORT']),
     dropLayersLike: ['DEFPOINTS', 'DIMS', 'DIM', 'DIMENSIONS', 'ANNOTATION', 'ANNO', 'TEXT', 'MTEXT', 'TITLE', 'BORDER', 'SHEET', 'PLOT', 'HATCH', 'PATTERN', 'SYMB', 'SYMBOL', 'SYMBOLS', 'XREF'],
     flattenToSingleLayer: true,
+    aggregatePaths: true,
+    exportMinified: true,
+    decimalPlaces: 2,
+    simplifyTolerance: 0.5,
+    minLineLengthRatio: 0.0015,
+    closedShapeAreaMinRatio: 0.00005,
+    minClosedShapeAreaAbs: 5,
   };
 
-  const round = (num, precision = 1) => {
+  const round = (num) => {
     if (!Number.isFinite(num)) return 0;
-    const factor = Math.pow(10, precision);
-    return Math.round(num * factor) / factor;
+    const p = Math.max(0, Math.min(6, config.decimalPlaces || 2));
+    const f = Math.pow(10, p);
+    return Math.round(num * f) / f;
   };
   const normalizeStrokeWidth = () => 8;
 
@@ -432,6 +440,11 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   ]);
 
   const isLayerVisible = (layerName) => {
+    if (config.flattenToSingleLayer) {
+      // When flattening, ignore layer visibility and render everything that survived filtering
+      return true;
+    }
+
     if (shouldShowAllLayers) {
       return true;
     }
@@ -540,29 +553,117 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     return false;
   };
 
-  const spatialHashEntities = (entities, gridSize = 50) => {
-    const grid = new Map();
-    const getGridKey = (x, y) => `${Math.floor(x / gridSize)}_${Math.floor(y / gridSize)}`;
+  const escapeXml = (text) => String(text).replace(/[&<>"']/g, (match) => xmlEscapeMap.get(match));
 
-    entities.forEach(entity => {
-      const bounds = getEntityBounds(entity);
-      if (bounds) {
-        const minGridX = Math.floor(bounds.minX / gridSize);
-        const maxGridX = Math.floor(bounds.maxX / gridSize);
-        const minGridY = Math.floor(bounds.minY / gridSize);
-        const maxGridY = Math.floor(bounds.maxY / gridSize);
-
-        for (let gx = minGridX; gx <= maxGridX; gx++) {
-          for (let gy = minGridY; gy <= maxGridY; gy++) {
-            const key = `${gx}_${gy}`;
-            if (!grid.has(key)) grid.set(key, []);
-            grid.get(key).push(entity);
-          }
-        }
+  const blockDefinitions = new Map();
+  if (tables.BLOCK_RECORD?.entries) {
+    for (const blockRecord of tables.BLOCK_RECORD.entries) {
+      if (blockRecord.name && blockRecord.entities) {
+        blockDefinitions.set(blockRecord.name, blockRecord.entities);
       }
-    });
+    }
+  }
 
-    return grid;
+  const getEntityColor = (entity, layers = {}) => {
+    if (config.flattenToSingleLayer) {
+      // In flattened mode, ignore layer-based color to keep a consistent single-layer feel
+      if (entity.color && typeof entity.color === 'object') return entity.color;
+      if (entity.colorIndex !== undefined && entity.colorIndex !== 256 && entity.colorIndex !== 0) {
+        const colorPalette = [
+          { r: 0, g: 0, b: 0 }, { r: 255, g: 0, b: 0 }, { r: 255, g: 255, b: 0 },
+          { r: 0, g: 255, b: 0 }, { r: 0, g: 255, b: 255 }, { r: 0, g: 0, b: 255 },
+          { r: 255, g: 0, b: 255 }, { r: 255, g: 255, b: 255 }, { r: 128, g: 128, b: 128 },
+          { r: 192, g: 192, b: 192 }, { r: 255, g: 127, b: 0 }, { r: 127, g: 255, b: 127 },
+          { r: 127, g: 127, b: 255 }, { r: 255, g: 127, b: 127 }, { r: 255, g: 255, b: 127 }
+        ];
+        return colorPalette[entity.colorIndex] || { r: 0, g: 0, b: 0 };
+      }
+      return { r: 0, g: 0, b: 0 };
+    }
+
+    if (entity.layer && layers[entity.layer]) {
+      const layerInfo = layers[entity.layer];
+      if (layerInfo.color && typeof layerInfo.color === 'object') {
+        return layerInfo.color;
+      }
+      if (layerInfo.colorIndex !== undefined && layerInfo.colorIndex !== 256) {
+        const colorPalette = [
+          { r: 0, g: 0, b: 0 },
+          { r: 255, g: 0, b: 0 },
+          { r: 255, g: 255, b: 0 },
+          { r: 0, g: 255, b: 0 },
+          { r: 0, g: 255, b: 255 },
+          { r: 0, g: 0, b: 255 },
+          { r: 255, g: 0, b: 255 },
+          { r: 255, g: 255, b: 255 },
+          { r: 128, g: 128, b: 128 },
+          { r: 192, g: 192, b: 192 },
+          { r: 255, g: 127, b: 0 },
+          { r: 127, g: 255, b: 127 },
+          { r: 127, g: 127, b: 255 },
+          { r: 255, g: 127, b: 127 },
+          { r: 255, g: 255, b: 127 },
+        ];
+        return colorPalette[layerInfo.colorIndex] || { r: 0, g: 0, b: 0 };
+      }
+    }
+
+    if (entity.color && typeof entity.color === 'object') {
+      return entity.color;
+    }
+
+    if (entity.colorIndex !== undefined && entity.colorIndex !== 256 && entity.colorIndex !== 0) {
+      const colorPalette = [
+        { r: 0, g: 0, b: 0 },
+        { r: 255, g: 0, b: 0 },
+        { r: 255, g: 255, b: 0 },
+        { r: 0, g: 255, b: 0 },
+        { r: 0, g: 255, b: 255 },
+        { r: 0, g: 0, b: 255 },
+        { r: 255, g: 0, b: 255 },
+        { r: 255, g: 255, b: 255 },
+        { r: 128, g: 128, b: 128 },
+        { r: 192, g: 192, b: 192 },
+        { r: 255, g: 127, b: 0 },
+        { r: 127, g: 255, b: 127 },
+        { r: 127, g: 127, b: 255 },
+        { r: 255, g: 127, b: 127 },
+        { r: 255, g: 255, b: 127 },
+      ];
+      return colorPalette[entity.colorIndex] || { r: 0, g: 0, b: 0 };
+    }
+
+    return { r: 0, g: 0, b: 0 };
+  };
+
+  const pathBuckets = new Map();
+  const getMinStrokeAttrs = (stroke) => {
+    if (config.exportMinified) {
+      return `stroke="#000" stroke-width="${config.strokeWidth || 8}" fill="none"`;
+    }
+    let s = stroke || '';
+    s = s.replace(/stroke-dasharray="none"/g, '').trim();
+    s = s.replace(/\s{2,}/g, ' ');
+    s = s.replace(/fill="[^"]*"/g, 'fill="none"');
+    return s.trim();
+  };
+
+  const addPathSegment = (attrs, d) => {
+    if (!d) return;
+    const key = attrs;
+    if (!pathBuckets.has(key)) pathBuckets.set(key, '');
+    pathBuckets.set(key, pathBuckets.get(key) + d);
+  };
+
+  const flushAggregatedPaths = () => {
+    const out = [];
+    for (const [attrs, d] of pathBuckets.entries()) {
+      const dd = d.trim();
+      if (dd.length === 0) continue;
+      out.push(`<path d="${dd}" ${attrs}/>`);
+    }
+    pathBuckets.clear();
+    return out;
   };
 
   const getEntityBounds = (entity) => {
@@ -601,9 +702,36 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     }
   };
 
+  const spatialHashEntities = (entities, gridSize = 50) => {
+    const grid = new Map();
+    // const getGridKey = (x, y) => `${Math.floor(x / gridSize)}_${Math.floor(y / gridSize)}`;
+    const add = (key, ent) => { if (!grid.has(key)) grid.set(key, []); grid.get(key).push(ent); };
+
+    entities.forEach(entity => {
+      const bounds = getEntityBounds(entity);
+      if (bounds) {
+        const minGridX = Math.floor(bounds.minX / gridSize);
+        const maxGridX = Math.floor(bounds.maxX / gridSize);
+        const minGridY = Math.floor(bounds.minY / gridSize);
+        const maxGridY = Math.floor(bounds.maxY / gridSize);
+
+        for (let gx = minGridX; gx <= maxGridX; gx++) {
+          for (let gy = minGridY; gy <= maxGridY; gy++) {
+            const key = `${gx}_${gy}`;
+            if (!grid.has(key)) grid.set(key, []);
+            grid.get(key).push(entity);
+          }
+        }
+      }
+    });
+
+    return grid;
+  };
+
   const areEntitiesIdentical = (entity1, entity2, tolerance = 0.1) => {
     if (entity1.type !== entity2.type) return false;
     if (entity1.layer !== entity2.layer) return false;
+    if (!config.flattenToSingleLayer && entity1.layer !== entity2.layer) return false;
 
     switch (entity1.type) {
       case 'CIRCLE':
@@ -620,7 +748,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
         if (!s1 || !e1 || !s2 || !e2) return false;
 
-        // Check both directions (line could be reversed)
         const forward = Math.abs(s1.x - s2.x) < tolerance && Math.abs(s1.y - s2.y) < tolerance &&
           Math.abs(e1.x - e2.x) < tolerance && Math.abs(e1.y - e2.y) < tolerance;
         const reverse = Math.abs(s1.x - e2.x) < tolerance && Math.abs(s1.y - e2.y) < tolerance &&
@@ -775,73 +902,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
     console.log(`Circle optimization: removed ${removedCount} duplicate circles`);
     return [...others, ...optimizedCircles];
-  };
-
-  const escapeXml = (text) => String(text).replace(/[&<>"']/g, (match) => xmlEscapeMap.get(match));
-
-  const blockDefinitions = new Map();
-  if (tables.BLOCK_RECORD?.entries) {
-    for (const blockRecord of tables.BLOCK_RECORD.entries) {
-      if (blockRecord.name && blockRecord.entities) {
-        blockDefinitions.set(blockRecord.name, blockRecord.entities);
-      }
-    }
-  }
-
-  const getEntityColor = (entity, layers = {}) => {
-    if (entity.layer && layers[entity.layer]) {
-      const layerInfo = layers[entity.layer];
-      if (layerInfo.color && typeof layerInfo.color === 'object') {
-        return layerInfo.color;
-      }
-      if (layerInfo.colorIndex !== undefined && layerInfo.colorIndex !== 256) {
-        const colorPalette = [
-          { r: 0, g: 0, b: 0 },
-          { r: 255, g: 0, b: 0 },
-          { r: 255, g: 255, b: 0 },
-          { r: 0, g: 255, b: 0 },
-          { r: 0, g: 255, b: 255 },
-          { r: 0, g: 0, b: 255 },
-          { r: 255, g: 0, b: 255 },
-          { r: 255, g: 255, b: 255 },
-          { r: 128, g: 128, b: 128 },
-          { r: 192, g: 192, b: 192 },
-          { r: 255, g: 127, b: 0 },
-          { r: 127, g: 255, b: 127 },
-          { r: 127, g: 127, b: 255 },
-          { r: 255, g: 127, b: 127 },
-          { r: 255, g: 255, b: 127 },
-        ];
-        return colorPalette[layerInfo.colorIndex] || { r: 0, g: 0, b: 0 };
-      }
-    }
-
-    if (entity.color && typeof entity.color === 'object') {
-      return entity.color;
-    }
-
-    if (entity.colorIndex !== undefined && entity.colorIndex !== 256 && entity.colorIndex !== 0) {
-      const colorPalette = [
-        { r: 0, g: 0, b: 0 },
-        { r: 255, g: 0, b: 0 },
-        { r: 255, g: 255, b: 0 },
-        { r: 0, g: 255, b: 0 },
-        { r: 0, g: 255, b: 255 },
-        { r: 0, g: 0, b: 255 },
-        { r: 255, g: 0, b: 255 },
-        { r: 255, g: 255, b: 255 },
-        { r: 128, g: 128, b: 128 },
-        { r: 192, g: 192, b: 192 },
-        { r: 255, g: 127, b: 0 },
-        { r: 127, g: 255, b: 127 },
-        { r: 127, g: 127, b: 255 },
-        { r: 255, g: 127, b: 127 },
-        { r: 255, g: 255, b: 127 },
-      ];
-      return colorPalette[entity.colorIndex] || { r: 0, g: 0, b: 0 };
-    }
-
-    return { r: 0, g: 0, b: 0 };
   };
 
   const pointToLineDistance = (point, lineStart, lineEnd) => {
@@ -1133,6 +1193,12 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       updateBounds(x1, y1, 'LINE', e.handle);
       updateBounds(x2, y2, 'LINE', e.handle);
 
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        addPathSegment(attrs, `M${round(x1)} ${round(y1)} L${round(x2)} ${round(y2)} `);
+        return '';
+      }
+
       return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke}/>`;
     },
     // ARC: (e, color, stroke, transforms) => {
@@ -1181,7 +1247,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       updateBounds(cx - originalRadius, cy - originalRadius, 'CIRCLE', e.handle);
       updateBounds(cx + originalRadius, cy + originalRadius, 'CIRCLE', e.handle);
 
-      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(originalRadius)}" fill="yellow" />`;
+      // return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(originalRadius)}" fill="yellow" />`;
+      const adjustedRadius = originalRadius * 1; // or 0.3 to make them smaller
+      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(adjustedRadius)}" fill="yellow" />`;
     },
     // ELLIPSE: (e, color, stroke, transforms) => {
     //   if (!e.center || !e.majorAxisEndPoint) return null;
@@ -1203,28 +1271,56 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     LWPOLYLINE: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
 
-      const simplifiedVertices = simplifyPolyline(e.vertices, 0.1);
-
-      const points = simplifiedVertices.map(v => {
+      const tol = config.simplifyTolerance || 0.1;
+      const verts = simplifyPolyline(e.vertices, tol);
+      const points = verts.map(v => {
         const [x, y] = applyTransform(v.x, v.y, transforms);
         updateBounds(x, y, 'LWPOLYLINE', e.handle);
         return `${round(x)},${round(y)}`;
       });
 
-      const tag = e.closed || e.flags === 1 ? "polygon" : "polyline";
+      const isClosed = e.closed || e.flags === 1;
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        if (points.length >= 2) {
+          const [sx, sy] = points[0].split(',');
+          let d = `M${sx} ${sy}`;
+          for (let i = 1; i < points.length; i++) {
+            const [px, py] = points[i].split(',');
+            d += ` L${px} ${py}`;
+          }
+          if (isClosed) d += ' Z';
+          addPathSegment(attrs, d + ' ');
+        }
+        return '';
+      }
+      const tag = isClosed ? "polygon" : "polyline";
       return `<${tag} points="${points.join(' ')}" ${stroke}/>`;
     },
 
     POLYGON: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 3) return null;
 
-      const simplifiedVertices = simplifyPolyline(e.vertices, 0.1);
-
-      const points = simplifiedVertices.map(v => {
+      const tol = config.simplifyTolerance || 0.1;
+      const verts = simplifyPolyline(e.vertices, tol);
+      const points = verts.map(v => {
         const [x, y] = applyTransform(v.x, v.y, transforms);
         updateBounds(x, y, 'LWPOLYLINE', e.handle);
         return `${round(x)},${round(y)}`;
       });
+
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        const [sx, sy] = points[0].split(',');
+        let d = `M${sx} ${sy}`;
+        for (let i = 1; i < points.length; i++) {
+          const [px, py] = points[i].split(',');
+          d += ` L${px} ${py}`;
+        }
+        d += ' Z ';
+        addPathSegment(attrs, d);
+        return '';
+      }
 
       return `<polygon points="${points.join(' ')}" ${stroke}/>`;
     },
@@ -1232,13 +1328,25 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     POLYLINE: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
 
-      const simplifiedVertices = simplifyPolyline(e.vertices, 0.1);
-
-      const points = simplifiedVertices.map(v => {
+      const tol = config.simplifyTolerance || 0.1;
+      const verts = simplifyPolyline(e.vertices, tol);
+      const points = verts.map(v => {
         const [x, y] = applyTransform(v.x, v.y, transforms);
         updateBounds(x, y, 'LWPOLYLINE', e.handle);
         return `${round(x)},${round(y)}`;
       });
+
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        const [sx, sy] = points[0].split(',');
+        let d = `M${sx} ${sy}`;
+        for (let i = 1; i < points.length; i++) {
+          const [px, py] = points[i].split(',');
+          d += ` L${px} ${py}`;
+        }
+        addPathSegment(attrs, d + ' ');
+        return '';
+      }
 
       return `<polyline points="${points.join(' ')}" ${stroke}/>`;
     },
@@ -1256,6 +1364,14 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
       updateBounds(minX, minY, 'OLE2FRAME', e.handle);
       updateBounds(minX + width, minY + height, 'OLE2FRAME', e.handle);
+
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        const x = round(minX), y = round(minY), w = round(width), h = round(height);
+        const d = `M${x} ${y} L${x + w} ${y} L${x + w} ${y + h} L${x} ${y + h} Z `;
+        addPathSegment(attrs, d);
+        return '';
+      }
 
       const frameStroke = stroke.replace(/fill="[^"]*"\s*/, '') + ' stroke-dasharray="5,5"';
       return `<rect x="${round(minX)}" y="${round(minY)}" width="${round(width)}" height="${round(height)}" ${frameStroke}/>`;
@@ -1288,11 +1404,16 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
         if (pathData) {
           pathData += ' Z';
-          paths.push(`<path d="${pathData}" ${stroke}/>`);
+          if (config.aggregatePaths) {
+            const attrs = getMinStrokeAttrs(stroke);
+            addPathSegment(attrs, pathData + ' ');
+          } else {
+            paths.push(`<path d="${pathData}" ${stroke}/>`);
+          }
         }
       }
 
-      return paths.join('');
+      return config.aggregatePaths ? '' : paths.join('');
     },
 
     MTEXT: (e, color, stroke, transforms) => {
@@ -1403,6 +1524,19 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return `${round(x)},${round(y)}`;
       });
 
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        const [sx, sy] = points[0].split(',');
+        let d = `M${sx} ${sy}`;
+        for (let i = 1; i < points.length; i++) {
+          const [px, py] = points[i].split(',');
+          d += ` L${px} ${py}`;
+        }
+        d += ' Z ';
+        addPathSegment(attrs, d);
+        return '';
+      }
+
       const solidStroke = stroke.replace(/fill="[^"]*"/, `fill="rgb(${color},${color},${color})"`);
       return `<polygon points="${points.join(' ')}" ${solidStroke}/>`;
     },
@@ -1416,6 +1550,19 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         updateBounds(x, y, '3DFACE', e.handle);
         return `${round(x)},${round(y)}`;
       });
+
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        const [sx, sy] = points[0].split(',');
+        let d = `M${sx} ${sy}`;
+        for (let i = 1; i < points.length; i++) {
+          const [px, py] = points[i].split(',');
+          d += ` L${px} ${py}`;
+        }
+        d += ' Z ';
+        addPathSegment(attrs, d);
+        return '';
+      }
 
       return `<polygon points="${points.join(' ')}" ${stroke}/>`;
     },
@@ -1507,11 +1654,15 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         const [x2, y2] = applyTransform(end.x, end.y, transforms);
         updateBounds(x1, y1, 'MLINE', e.handle);
         updateBounds(x2, y2, 'MLINE', e.handle);
-        const mlineStroke = stroke.replace(/stroke-width="[^"]*"/, 'stroke-width="2"');
-        items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${mlineStroke}/>`);
+        if (config.aggregatePaths) {
+          const attrs = getMinStrokeAttrs(stroke);
+          addPathSegment(attrs, `M${round(x1)} ${round(y1)} L${round(x2)} ${round(y2)} `);
+        } else {
+          const mlineStroke = stroke.replace(/stroke-width="[^"]*"/, 'stroke-width="4"');
+          items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${mlineStroke}/>`);
+        }
       }
-
-      return items.length > 0 ? items.join('') : null;
+      return config.aggregatePaths ? '' : (items.length > 0 ? items.join('') : null);
     },
 
     ATTDEF: (e, color, stroke, transforms) => {
@@ -1783,7 +1934,12 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         }
       }
 
-      if (regularElements.length > 0) {
+      if (config.aggregatePaths) {
+        const flushed = flushAggregatedPaths();
+        if (flushed.length > 0) {
+          content.push(`<g id="${escapeXml(source)}">${flushed.join('')}</g>`);
+        }
+      } else if (regularElements.length > 0) {
         content.push(`<g id="${escapeXml(source)}" class="entity-group">
 ${regularElements.join('\n')}
 </g>`);
@@ -1794,6 +1950,13 @@ ${regularElements.join('\n')}
       const useElement = generateInsertUseElement(e, source, currentTransforms);
       if (useElement) {
         content.push(useElement);
+      }
+    }
+
+    if (config.aggregatePaths) {
+      const flushedAtEnd = flushAggregatedPaths();
+      if (flushedAtEnd.length > 0) {
+        content.push(`<g id="${escapeXml(source)}">${flushedAtEnd.join('')}</g>`);
       }
     }
 
@@ -1845,7 +2008,6 @@ ${regularElements.join('\n')}
 
     const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
 
-    // When flattening, inline the block geometry instead of <use/defs>
     if (config.flattenToSingleLayer) {
       const childTransforms = [
         ...currentTransforms,
@@ -1854,7 +2016,6 @@ ${regularElements.join('\n')}
       const childContent = [];
       for (const be of blockEntities) {
         if (!be?.type) continue;
-        // Force child entities to inherit the INSERT's layer to have a single visible layer
         const beClone = { ...be, layer: e.layer };
         const element = generateElement(beClone, `Block_${blockName}`, childTransforms, highlightedEntityHandle);
         if (element) childContent.push(element);
@@ -1892,7 +2053,6 @@ ${regularElements.join('\n')}
 
   const generateBlockDefinitions = () => {
     if (config.flattenToSingleLayer) {
-      // No <defs> when flattening blocks inline
       return '';
     }
     const defs = [];
@@ -1986,17 +2146,47 @@ ${defs.join('\n')}
 
       console.log(`After initial filtering: ${filteredEntities.length} entities`);
 
-      // Apply new optimization functions
-      filteredEntities = removeIdenticalEntities(filteredEntities);
-      filteredEntities = consolidateBlockInstances(filteredEntities);
-      filteredEntities = optimizeCircularEntities(filteredEntities);
       filteredEntities = removePreciseDuplicates(filteredEntities);
       filteredEntities = consolidateBoundaryLayers(filteredEntities);
       filteredEntities = mergeOverlappingPolylines(filteredEntities);
       filteredEntities = deduplicateLines(filteredEntities);
       filteredEntities = consolidateOverlappingLayers(filteredEntities);
+      filteredEntities = removeIdenticalEntities(filteredEntities);
+      filteredEntities = consolidateBlockInstances(filteredEntities);
+      filteredEntities = optimizeCircularEntities(filteredEntities);
 
-      console.log(`After all optimizations: ${filteredEntities.length} entities`);
+      const contentBounds = calculateTightBounds(filteredEntities);
+      const minDim = Math.max(1, Math.min(contentBounds.maxX - contentBounds.minX, contentBounds.maxY - contentBounds.minY));
+      const minLineLen = minDim * (config.minLineLengthRatio || 0.0015);
+      const minArea = Math.max(minDim * minDim * (config.closedShapeAreaMinRatio || 0.00005), config.minClosedShapeAreaAbs || 5);
+
+      filteredEntities = filteredEntities.filter(e => {
+        switch (e.type) {
+          case 'LINE': {
+            const s = e.startPoint || e.start; const t = e.endPoint || e.end; if (!s || !t) return false;
+            const dx = t.x - s.x, dy = t.y - s.y; return Math.hypot(dx, dy) >= minLineLen;
+          }
+          case 'POLYGON':
+          case 'LWPOLYLINE':
+          case 'POLYLINE': {
+            const verts = e.vertices || []; if (verts.length < 2) return false;
+            const isClosed = e.closed || e.flags === 1 || (verts.length > 2 && (verts[0].x === verts[verts.length - 1].x && verts[0].y === verts[verts.length - 1].y));
+            if (!isClosed) {
+              // length check for open polylines
+              let length = 0; for (let i = 0; i < verts.length - 1; i++) { const v1 = verts[i], v2 = verts[i + 1]; length += Math.hypot(v2.x - v1.x, v2.y - v1.y); }
+              return length >= minLineLen;
+            }
+            let area2 = 0; for (let i = 0; i < verts.length; i++) { const a = verts[i], b = verts[(i + 1) % verts.length]; area2 += a.x * b.y - b.x * a.y; }
+            const area = Math.abs(area2) / 2; return area >= minArea;
+          }
+          case 'CIRCLE': return (e.radius || 0) >= (minLineLen * 0.5);
+          default: return true;
+        }
+      });
+
+      if (config.flattenToSingleLayer) {
+        filteredEntities = filteredEntities.map(e => ({ ...e, layer: '0' }));
+      }
 
       usedEntities = filteredEntities;
       const modelContent = processEntities(filteredEntities, '*Model_Space', transformStack);
@@ -2063,6 +2253,83 @@ ${defs.join('\n')}
   const displayDimensions = calculateOptimalDisplaySize(tightBounds);
   console.log('Display dimensions calculated:', displayDimensions);
 
+  const enhancedSvgStyles = `
+  <style>
+    .dwg-svg-container {
+      width: 100%;
+      height: var(--container-height, 600px);
+      max-height: 90vh;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f8f9fa;
+      position: relative;
+    }
+
+    .dwg-svg-container svg {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+      transition: all 0.3s ease;
+    }
+
+    .dwg-svg-info {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: monospace;
+    }
+
+    .dwg-entity:hover {
+      opacity: 0.7 !important;
+      stroke-width: 3 !important;
+    }
+    .deletable-entity {
+      cursor: pointer;
+    }
+    .clickable-entity:hover {
+      stroke: #ff6b6b !important;
+      stroke-width: 4 !important;
+      opacity: 0.8 !important;
+    }
+    .insert-block:hover {
+      stroke: #ff6b6b !important;
+      stroke-width: 3 !important;
+      fill: rgba(255, 107, 107, 0.2) !important;
+    }
+    .highlighted-entity {
+      stroke: red !important;
+      stroke-width: 6 !important;
+      fill: rgba(255, 0, 0, 0.3) !important;
+      animation: pulse-highlight 1s infinite alternate;
+    }
+    @keyframes pulse-highlight {
+      from { opacity: 0.8; }
+      to { opacity: 1; }
+    }
+    .entity-tooltip {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      pointer-events: none;
+      z-index: 1000;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+  </style>
+  `;
+
   const targetWidth = 1200;
   const targetHeight = 640;
 
@@ -2071,6 +2338,7 @@ ${defs.join('\n')}
 
   let svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${targetWidth} ${targetHeight}">
     ${blockDefs}
+    ${enhancedSvgStyles}
     <g transform="${fit.transform}">
       ${svgContent}
     </g>
@@ -2081,15 +2349,14 @@ ${defs.join('\n')}
     .replace(/\s{2,}/g, ' ')
     .replace(/<!--.*?-->/g, '')
     .replace(/(\d+\.\d{3})\d+/g, '$1')
+    // .replace(/\s*class="[^"]*"/g, config.exportMinified ? '' : '$&')
+    // .replace(/\s*data-handle="[^"]*"/g, config.exportMinified ? '' : '$&')
+    .replace(/\s*stroke-dasharray="none"/g, '')
+    .replace(/\s*opacity="1"/g, '')
+    .replace(/\s*id="[^\"]*"/g, config.exportMinified ? '' : '$&')
     .replace(/\s+/g, ' ')
     .replace(/\s*=\s*"/g, '="')
     .replace(/"\s+/g, '" ')
-    .replace(/stroke-width="[^"]*"/g, (match) => {
-      const value = match.match(/stroke-width="([^"]*)"/)[1];
-      return `stroke-width="${Math.max(round(parseFloat(value) || 1, 1), 0.5)}"`;
-    })
-    .replace(/fill="none"\s+stroke="none"/g, 'style="display:none"')
-    .replace(/opacity="0"/g, 'style="display:none"');
 
   return svgString;
 }
