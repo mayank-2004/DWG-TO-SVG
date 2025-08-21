@@ -1,4 +1,4 @@
-export function convertToSvg(db, transformStack = [], visibleLayers = null, highlightedEntityHandle = null) {
+export function convertToSvg(db, transformStack = [], visibleLayers = null, highlightedEntityHandle = null, visibleEntities = null) {
   const tables = db.tables || {};
 
   if (!tables.BLOCK_RECORD?.entries?.length && !db.entities?.length) {
@@ -27,7 +27,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     hideText: false,
     hidePoints: true,
     simplifySplines: true,
-    strokeWidth: 6,
+    strokeWidth: 10,
     textSizeMultiplier: 0.3,
     minBigTextFactor: 0.018,
     dropEntityTypes: new Set(['DIMENSION', 'LEADER', 'HATCH', 'POINT', 'ATTDEF', 'TOLERANCE', 'MLINE', 'TABLE', 'VIEWPORT']),
@@ -440,10 +440,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   ]);
 
   const isLayerVisible = (layerName) => {
-    if (config.flattenToSingleLayer) {
-      // When flattening, ignore layer visibility and render everything that survived filtering
-      return true;
-    }
 
     if (shouldShowAllLayers) {
       return true;
@@ -463,21 +459,29 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   };
 
   const shouldRenderEntity = (entity, layers = {}) => {
-    // Skip circular entities from annotation and symbol layers
-    if (['CIRCLE', 'ARC', 'ELLIPSE'].includes(entity.type)) {
-      const problematicLayers = [
-        'G-ANNO-SYMB', 'A-GLAZ-CWMG', 'DEFPOINTS', 'Dims', 'DIMENSIONS',
-        'TEXT', 'ANNOTATION', 'SYMBOLS', 'TITLE', 'BORDER', 'VIEWPORT',
-        'XREF', 'BLOCKS', 'HATCH', 'PATTERN'
-      ];
-
-      if (entity.layer && problematicLayers.some(layer =>
-        entity.layer.toUpperCase().includes(layer.toUpperCase())
-      )) {
-        console.log(`Filtering out ${entity.type} from annotation layer: ${entity.layer}`);
+    // First check if this specific entity should be visible when visibleEntities is provided
+    if (visibleEntities && Array.isArray(visibleEntities) && visibleEntities.length > 0) {
+      if (entity.handle && !visibleEntities.includes(entity.handle)) {
+        console.log(`Hiding entity ${entity.handle} (${entity.type}) - not in visible entities list`);
         return false;
       }
     }
+
+    // Skip circular entities from annotation and symbol layers
+    // if (['CIRCLE', 'ARC', 'ELLIPSE'].includes(entity.type)) {
+    //   const problematicLayers = [
+    //     'G-ANNO-SYMB', 'A-GLAZ-CWMG', 'DEFPOINTS', 'Dims', 'DIMENSIONS',
+    //     'TEXT', 'ANNOTATION', 'SYMBOLS', 'TITLE', 'BORDER', 'VIEWPORT',
+    //     'XREF', 'BLOCKS', 'HATCH', 'PATTERN'
+    //   ];
+
+    //   if (entity.layer && problematicLayers.some(layer =>
+    //     entity.layer.toUpperCase().includes(layer.toUpperCase())
+    //   )) {
+    //     console.log(`Filtering out ${entity.type} from annotation layer: ${entity.layer}`);
+    //     return false;
+    //   }
+    // }
 
     if (entity.layer && !isLayerVisible(entity.layer)) {
       console.log(`Skipping entity on hidden layer: ${entity.layer} (type: ${entity.type})`);
@@ -494,12 +498,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     if (entity.invisible === true || (entity.flags && (entity.flags & 1))) return false;
     if (entity.plotFlag === false) return false;
 
-    // Drop certain entity types entirely for a cleaner single-layer output
     if (config.dropEntityTypes && config.dropEntityTypes.has(entity.type)) {
       return false;
     }
 
-    // Drop layers that look like annotation/symbol layers
     if (entity.layer && Array.isArray(config.dropLayersLike)) {
       const lname = entity.layer.toUpperCase();
       for (const key of config.dropLayersLike) {
@@ -519,19 +521,16 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   const isUnwantedCircularEntity = (entity) => {
     if (!['CIRCLE', 'ARC', 'ELLIPSE'].includes(entity.type)) return false;
 
-    // Filter out very large circles that are likely viewport boundaries or construction geometry
     if (entity.type === 'CIRCLE' && entity.radius > 1000) {
       console.log(`Filtering out large circle with radius: ${entity.radius}`);
       return true;
     }
 
-    // Filter out circles at origin (0,0) which are often construction geometry
     if (entity.center && entity.center.x === 0 && entity.center.y === 0) {
       console.log(`Filtering out circular entity at origin`);
       return true;
     }
 
-    // Filter out circles that are part of dimension or annotation blocks
     const annotationLayers = [
       'DEFPOINTS', 'Dims', 'DIMENSIONS', 'TEXT', 'ANNOTATION', 'SYMBOLS',
       'TITLE', 'BORDER', 'VIEWPORT', 'XREF', 'BLOCKS'
@@ -544,8 +543,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       return true;
     }
 
-    // Filter out very small circles that might be point markers
-    if (entity.type === 'CIRCLE' && entity.radius < 0.5) {
+    if (entity.type === 'CIRCLE' && entity.radius < 50) {
       console.log(`Filtering out tiny circle with radius: ${entity.radius}`);
       return true;
     }
@@ -1719,50 +1717,50 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       return items.length > 0 ? items.join('') : null;
     },
 
-    INSERT: (e, color, stroke, transforms) => {
-      const blockName = e.blockName || e.name;
-      if (!blockName) {
-        console.warn('INSERT entity missing blockName:', e);
-        return null;
-      }
+    // INSERT: (e, color, stroke, transforms) => {
+    //   const blockName = e.blockName || e.name;
+    //   if (!blockName) {
+    //     console.warn('INSERT entity missing blockName:', e);
+    //     return null;
+    //   }
 
-      const blockEntities = blockDefinitions.get(blockName);
-      if (!blockEntities || !blockEntities.some(be => be?.type && entityHandlers[be.type])) {
-        return null;
-      }
+    //   const blockEntities = blockDefinitions.get(blockName);
+    //   if (!blockEntities || !blockEntities.some(be => be?.type && entityHandlers[be.type])) {
+    //     return null;
+    //   }
 
-      const insertPoint = e.insertionPoint || e.position;
+    //   const insertPoint = e.insertionPoint || e.position;
 
-      console.log(`Processing INSERT: ${blockName} at (${insertPoint.x}, ${insertPoint.y}) on layer ${e.layer}`);
+    //   console.log(`Processing INSERT: ${blockName} at (${insertPoint.x}, ${insertPoint.y}) on layer ${e.layer}`);
 
-      let xScale = e.xScale ?? e.scaleX ?? e.scale?.x ?? 1;
-      let yScale = e.yScale ?? e.scaleY ?? e.scale?.y ?? 1;
-      const rotation = e.rotation ?? e.rotationAngle ?? 0;
+    //   let xScale = e.xScale ?? e.scaleX ?? e.scale?.x ?? 1;
+    //   let yScale = e.yScale ?? e.scaleY ?? e.scale?.y ?? 1;
+    //   const rotation = e.rotation ?? e.rotationAngle ?? 0;
 
-      xScale = Math.max(Math.min(xScale, 1000), 0.001);
-      yScale = Math.max(Math.min(yScale, 1000), 0.001);
+    //   xScale = Math.max(Math.min(xScale, 1000), 0.001);
+    //   yScale = Math.max(Math.min(yScale, 1000), 0.001);
 
-      const translate = `translate(${round(insertPoint.x)},${round(insertPoint.y)})`;
-      const rotate = rotation !== 0 ? ` rotate(${round(rotation * 180 / Math.PI)})` : '';
-      const scale = (xScale !== 1 || yScale !== 1) ? ` scale(${round(xScale)},${round(yScale)})` : '';
-      const transformAttr = `${translate}${rotate}${scale}`;
+    //   const translate = `translate(${round(insertPoint.x)},${round(insertPoint.y)})`;
+    //   const rotate = rotation !== 0 ? ` rotate(${round(rotation * 180 / Math.PI)})` : '';
+    //   const scale = (xScale !== 1 || yScale !== 1) ? ` scale(${round(xScale)},${round(yScale)})` : '';
+    //   const transformAttr = `${translate}${rotate}${scale}`;
 
-      updateBounds(insertPoint.x, insertPoint.y, 'INSERT', e.handle);
+    //   updateBounds(insertPoint.x, insertPoint.y, 'INSERT', e.handle);
 
-      const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
+    //   const isHighlighted = highlightedEntityHandle && e.handle === highlightedEntityHandle;
 
-      let useAttributes;
-      if (isHighlighted) {
-        useAttributes = `stroke="red" stroke-width="12" fill="rgba(255,0,0,0.4)" opacity="1"`;
-      } else {
-        useAttributes = `stroke="black" fill="none" stroke-width="1"`;
-      }
+    //   let useAttributes;
+    //   if (isHighlighted) {
+    //     useAttributes = `stroke="red" stroke-width="12" fill="rgba(255,0,0,0.4)" opacity="1"`;
+    //   } else {
+    //     useAttributes = `stroke="black" fill="none" stroke-width="1"`;
+    //   }
 
-      const dataHandle = e.handle ? `data-handle="${e.handle}"` : '';
-      const entityClass = `class="dwg-entity deletable-entity insert-block"`;
+    //   const dataHandle = e.handle ? `data-handle="${e.handle}"` : '';
+    //   const entityClass = `class="dwg-entity deletable-entity insert-block"`;
 
-      return `<use href="#${escapeXml(blockName)}" transform="${transformAttr}" ${useAttributes} ${dataHandle} ${entityClass} />`;
-    },
+    //   return `<use href="#${escapeXml(blockName)}" transform="${transformAttr}" ${useAttributes} ${dataHandle} ${entityClass} />`;
+    // },
   };
 
   function calculateOptimalDisplaySize(bounds) {
@@ -1970,6 +1968,14 @@ ${regularElements.join('\n')}
       return null;
     }
 
+    // Check if this INSERT entity should be visible
+    if (visibleEntities && Array.isArray(visibleEntities) && visibleEntities.length > 0) {
+      if (e.handle && !visibleEntities.includes(e.handle)) {
+        console.log(`Hiding INSERT entity ${e.handle} - not in visible entities list`);
+        return null;
+      }
+    }
+
     const layerInfo = tables.LAYER?.entries?.reduce((acc, layer) => {
       acc[layer.name] = layer;
       return acc;
@@ -2016,8 +2022,14 @@ ${regularElements.join('\n')}
       const childContent = [];
       for (const be of blockEntities) {
         if (!be?.type) continue;
-        const beClone = { ...be, layer: e.layer };
-        const element = generateElement(beClone, `Block_${blockName}`, childTransforms, highlightedEntityHandle);
+        // const beClone = { ...be, layer: e.layer };
+        // Check if child entities should be visible when visibleEntities is provided
+        if (visibleEntities && Array.isArray(visibleEntities) && visibleEntities.length > 0) {
+          if (be.handle && !visibleEntities.includes(be.handle)) {
+            continue; // Skip this child entity
+          }
+        }
+        const element = generateElement(be, `Block_${blockName}`, childTransforms, highlightedEntityHandle);
         if (element) childContent.push(element);
       }
       if (childContent.length === 0) return null;
@@ -2146,6 +2158,16 @@ ${defs.join('\n')}
 
       console.log(`After initial filtering: ${filteredEntities.length} entities`);
 
+      // Apply visibleEntities filtering if provided
+      if (visibleEntities && Array.isArray(visibleEntities) && visibleEntities.length > 0) {
+        const beforeCount = filteredEntities.length;
+        filteredEntities = filteredEntities.filter(entity => {
+          if (!entity.handle) return true; // Keep entities without handles
+          return visibleEntities.includes(entity.handle);
+        });
+        console.log(`After visibleEntities filtering: ${beforeCount} → ${filteredEntities.length} entities`);
+      }
+
       filteredEntities = removePreciseDuplicates(filteredEntities);
       filteredEntities = consolidateBoundaryLayers(filteredEntities);
       filteredEntities = mergeOverlappingPolylines(filteredEntities);
@@ -2184,9 +2206,9 @@ ${defs.join('\n')}
         }
       });
 
-      if (config.flattenToSingleLayer) {
-        filteredEntities = filteredEntities.map(e => ({ ...e, layer: '0' }));
-      }
+      // if (config.flattenToSingleLayer) {
+      //   filteredEntities = filteredEntities.map(e => ({ ...e, layer: '0' }));
+      // }
 
       usedEntities = filteredEntities;
       const modelContent = processEntities(filteredEntities, '*Model_Space', transformStack);
@@ -2349,14 +2371,15 @@ ${defs.join('\n')}
     .replace(/\s{2,}/g, ' ')
     .replace(/<!--.*?-->/g, '')
     .replace(/(\d+\.\d{3})\d+/g, '$1')
-    // .replace(/\s*class="[^"]*"/g, config.exportMinified ? '' : '$&')
-    // .replace(/\s*data-handle="[^"]*"/g, config.exportMinified ? '' : '$&')
+    .replace(/\s*fill="none"/g, '')
     .replace(/\s*stroke-dasharray="none"/g, '')
     .replace(/\s*opacity="1"/g, '')
     .replace(/\s*id="[^\"]*"/g, config.exportMinified ? '' : '$&')
     .replace(/\s+/g, ' ')
     .replace(/\s*=\s*"/g, '="')
     .replace(/"\s+/g, '" ')
+    .replace(/<g[^>]*>\s*<\/g>/g, '')
+    .trim();
 
   return svgString;
 }

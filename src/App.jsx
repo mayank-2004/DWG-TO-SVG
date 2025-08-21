@@ -31,6 +31,7 @@ export default function App() {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [showSelectionDialog, setShowSelectionDialog] = useState(false);
   const [selectedAreaEntities, setSelectedAreaEntities] = useState([]);
+  const [visibleEntities, setVisibleEntities] = useState([]);
 
   const dbRef = useRef(null);
   const svgContainerRef = useRef(null);
@@ -218,7 +219,7 @@ export default function App() {
       lib.dwg_free(dwg);
 
       console.log('Converting to SVG with visible layers:', layers);
-      const svgText = convertToSvg(db, [], layers, null);
+      const svgText = convertToSvg(db, [], layers, null, []);
 
       if (!svgText || svgText.includes('No data')) {
         throw new Error('Failed to convert DWG content to SVG. The file may contain unsupported entity types.');
@@ -356,7 +357,7 @@ export default function App() {
         }
 
         // Refresh SVG to ensure consistency
-        const svgText = convertToSvg(dbRef.current, [], visibleLayers, null);
+        const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities);
         setSvg(svgText);
       }
     } else {
@@ -402,7 +403,7 @@ export default function App() {
         console.log('Inline delete - Entity successfully removed');
 
         // FORCE immediate SVG update
-        const svgText = convertToSvg(dbRef.current, [], visibleLayers, null);
+        const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities);
         setSvg(svgText);
 
         // Check if the layer is now empty and remove it from layers if needed
@@ -518,7 +519,7 @@ export default function App() {
       });
 
       // Force re-render SVG immediately
-      const svgText = convertToSvg(dbRef.current, [], visibleLayers, null);
+      const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities);
       setSvg(svgText);
 
       // Check if the layer is now empty and remove it from layers if needed
@@ -577,7 +578,7 @@ export default function App() {
 
     if (dbRef.current) {
       console.log('Re-rendering SVG with visible layers:', updated);
-      const svgText = convertToSvg(dbRef.current, [], updated, null);
+      const svgText = convertToSvg(dbRef.current, [], updated, null, visibleEntities);
       setSvg(svgText);
     }
   };
@@ -588,7 +589,7 @@ export default function App() {
   const handleSelectAllLayers = () => {
     setVisibleLayers([...allLayers]);
     if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], allLayers, null);
+      const svgText = convertToSvg(dbRef.current, [], allLayers, null, visibleEntities);
       setSvg(svgText);
     }
   };
@@ -596,7 +597,7 @@ export default function App() {
   const handleDeselectAllLayers = () => {
     setVisibleLayers([]);
     if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], [], null);
+      const svgText = convertToSvg(dbRef.current, [], [], null, visibleEntities);
       setSvg(svgText);
     }
   };
@@ -612,7 +613,7 @@ export default function App() {
     setVisibleLayers(updatedVisibleLayers);
 
     if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], updatedVisibleLayers, null);
+      const svgText = convertToSvg(dbRef.current, [], updatedVisibleLayers, null, visibleEntities);
       setSvg(svgText);
     }
   };
@@ -621,6 +622,45 @@ export default function App() {
     setAllLayers([]);
     setVisibleLayers([]);
     setSvg('');
+  };
+
+  // Add these handler functions
+  const handleEntityToggle = (entityHandle) => {
+    let updated;
+    if (visibleEntities.includes(entityHandle)) {
+      updated = visibleEntities.filter(h => h !== entityHandle);
+    } else {
+      updated = [...visibleEntities, entityHandle];
+    }
+
+    console.log(`Entity ${entityHandle} toggled. New visible entities:`, updated);
+    setVisibleEntities(updated);
+
+    if (dbRef.current) {
+      console.log('Re-rendering SVG with visible entities:', updated);
+      const svgText = convertToSvg(dbRef.current, updated, visibleLayers, highlightedEntity, visibleEntities);
+      setSvg(svgText);
+    }
+  };
+
+  const handleSelectAllEntities = () => {
+    const allEntities = getAllEntities();
+    const layerEntities = allEntities.filter(e => e.layer === selectedLayer);
+    const allEntityHandles = layerEntities.map(e => e.handle).filter(Boolean);
+    setVisibleEntities(allEntityHandles);
+
+    if (dbRef.current) {
+      const svgText = convertToSvg(dbRef.current, allEntityHandles, visibleLayers, highlightedEntity, visibleEntities);
+      setSvg(svgText);
+    }
+  };
+
+  const handleDeselectAllEntities = () => {
+    setVisibleEntities([]);
+    if (dbRef.current) {
+      const svgText = convertToSvg(dbRef.current, [], visibleLayers, highlightedEntity, visibleEntities);
+      setSvg(svgText);
+    }
   };
 
   const createHighlightOverlay = (entityHandle) => {
@@ -938,6 +978,16 @@ export default function App() {
     };
   }, [showInlineDeleteDialog]);
 
+  // Add this useEffect to initialize visible entities when entities dialog opens
+  useEffect(() => {
+    if (showEntitiesDialog && selectedLayer) {
+      const allEntities = getAllEntities();
+      const layerEntities = allEntities.filter(e => e.layer === selectedLayer);
+      const entityHandles = layerEntities.map(e => e.handle).filter(Boolean);
+      setVisibleEntities(entityHandles);
+    }
+  }, [showEntitiesDialog, selectedLayer]);
+
   const handleSelectionMouseDown = (event) => {
     if (!selectionMode) return;
 
@@ -1009,33 +1059,6 @@ export default function App() {
       alert('Failed to download SVG file.');
     }
   };
-  // const download = () => {
-  //   if (!svg) return;
-
-  //   try {
-  //     // Compress SVG content before download
-  //     let compressedSvg = svg
-  //       .replace(/(\d+\.\d)\d+/g, '$1')           // Limit decimals
-  //       .replace(/\s{2,}/g, ' ')                  // Collapse spaces
-  //       .replace(/>\s+</g, '><');                 // Remove inter-tag whitespace
-
-  //     const blob = new Blob([compressedSvg], {
-  //       type: "image/svg+xml;charset=utf-8"
-  //     });
-
-  //     // Log file size for monitoring
-  //     console.log(`SVG file size: ${(blob.size / (1024 * 1024)).toFixed(2)} MB`);
-
-  //     const a = document.createElement("a");
-  //     a.href = URL.createObjectURL(blob);
-  //     a.download = name || "drawing.svg";
-  //     a.click();
-  //     URL.revokeObjectURL(a.href);
-  //   } catch (err) {
-  //     console.error('Error downloading SVG:', err);
-  //     alert('Failed to download SVG file.');
-  //   }
-  // };
 
   const handleSvgChange = (newSvg) => {
     setSvg(newSvg);
@@ -1394,7 +1417,7 @@ export default function App() {
           </div>
         )}
 
-        {showEntitiesDialog && (
+        {/* {showEntitiesDialog && (
           <div style={{
             position: 'fixed',
             top: 0,
@@ -1584,6 +1607,286 @@ export default function App() {
                     </>
                   );
                 })()}
+              </div>
+            </div>
+          </div>
+        )} */}
+        {showEntitiesDialog && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            right: 0,
+            height: '100vh',
+            width: '420px',
+            background: 'white',
+            zIndex: 10000,
+            boxShadow: '-4px 0 20px rgba(0,0,0,0.15)',
+            borderLeft: '1px solid #eee',
+            overflowY: 'auto',
+            // transition: 'right 0.2s'
+          }}>
+            <div style={{
+              background: 'white',
+              padding: '2rem',
+              borderRadius: '8px',
+              minWidth: '360px',
+              maxHeight: '100vh',
+              overflow: 'auto',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '1rem',
+                borderBottom: '1px solid #eee',
+                paddingBottom: '1rem'
+              }}>
+                <h3 style={{ margin: 0, color: 'black' }}>
+                  Entities in Layer: <span style={{ color: '#007bff' }}>{selectedLayer}</span>
+                </h3>
+                <span style={{
+                  color: '#666',
+                  fontSize: '0.9em'
+                }}>
+                  {visibleEntities.length}/{(() => {
+                    const allEntities = getAllEntities();
+                    return allEntities.filter(e => e.layer === selectedLayer).length;
+                  })()} visible
+                </span>
+              </div>
+
+              <div style={{ maxHeight: '300px', overflow: 'auto' }}>
+                {(() => {
+                  const allEntities = getAllEntities();
+                  console.log('All entities:', allEntities);
+                  const layerEntities = allEntities.filter(e => e.layer === selectedLayer);
+                  console.log('Layer entities:', layerEntities);
+
+                  return layerEntities.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '20px' }}>
+                      <p style={{ color: '#666', fontStyle: 'italic' }}>No entities found in this layer.</p>
+                      <p style={{ color: '#999', fontSize: '0.8em' }}>This layer may have been emptied by deletions.</p>
+                      <button
+                        style={{
+                          padding: '8px 16px',
+                          backgroundColor: '#28a745',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          marginTop: '10px'
+                        }}
+                        onClick={() => setShowEntitiesDialog(false)}
+                      >
+                        Close Dialog
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{
+                        marginBottom: '10px',
+                        padding: '8px',
+                        backgroundColor: '#e8f5e8',
+                        borderRadius: '4px',
+                        fontSize: '0.9em',
+                        color: '#333'
+                      }}>
+                        <strong>{layerEntities.length}</strong> entities in this layer
+                      </div>
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {layerEntities.map(e => (
+                          <li key={e.handle} style={{
+                            marginBottom: '8px',
+                            padding: '8px',
+                            backgroundColor: visibleEntities.includes(e.handle)
+                              ? (highlightedEntity === e.handle ? '#ffebee' : '#e8f5e8')
+                              : '#f8f8f8',
+                            borderRadius: '6px',
+                            border: highlightedEntity === e.handle
+                              ? '1px solid #dc3545'
+                              : '1px solid #ddd',
+                            display: 'flex',
+                            alignItems: 'center',
+                            cursor: 'pointer',
+                            // transition: 'all 0.3s ease',
+                            // transform: highlightedEntity === e.handle ? 'scale(1.01)' : 'scale(1)',
+                            // boxShadow: highlightedEntity === e.handle ? '0 4px 12px rgba(220, 53, 69, 0.3)' : 'none',
+                            opacity: visibleEntities.includes(e.handle) ? 1 : 0.6
+                          }}
+                            onMouseEnter={() => {
+                              setHighlightedEntity(e.handle);
+                              if (dbRef.current) {
+                                const svgText = convertToSvg(dbRef.current, [], visibleLayers, e.handle, visibleEntities);
+                                setSvg(svgText);
+                              }
+                            }}
+                            onMouseLeave={() => {
+                              setHighlightedEntity(null);
+                              if (dbRef.current) {
+                                const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities);
+                                setSvg(svgText);
+                              }
+                            }}
+                          >
+                            <label style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              cursor: 'pointer',
+                              marginRight: '12px'
+                            }}>
+                              <input
+                                type="checkbox"
+                                checked={visibleEntities.includes(e.handle)}
+                                onChange={() => handleEntityToggle(e.handle)}
+                                style={{ marginRight: '8px' }}
+                                onClick={(event) => event.stopPropagation()}
+                              />
+                            </label>
+
+                            {highlightedEntity === e.handle && (
+                              <div style={{
+                                width: '8px',
+                                height: '8px',
+                                backgroundColor: '#dc3545',
+                                borderRadius: '50%',
+                                marginRight: '8px',
+                                // animation: 'pulse 1s infinite'
+                              }} />
+                            )}
+
+                            <span style={{
+                              flex: 1,
+                              color: 'black',
+                              fontWeight: highlightedEntity === e.handle ? 'bold' : (visibleEntities.includes(e.handle) ? 'bold' : 'normal')
+                            }}>
+                              <strong style={{ color: highlightedEntity === e.handle ? '#dc3545' : 'black' }}>{e.type}</strong> (handle: {e.handle})
+                              {e.layer && <span style={{ color: highlightedEntity === e.handle ? '#dc3545' : '#666', fontSize: '0.8em' }}> Layer: {e.layer}</span>}
+                              <span style={{ color: '#999', fontSize: '0.7em' }}> [{e.location}]</span>
+                              {!visibleEntities.includes(e.handle) && (
+                                <span style={{
+                                  marginLeft: '8px',
+                                  color: '#999',
+                                  fontSize: '0.8em',
+                                  fontStyle: 'italic'
+                                }}>
+                                  hidden
+                                </span>
+                              )}
+                            </span>
+{/* 
+                            {highlightedEntity === e.handle && (
+                              <span style={{
+                                marginLeft: '8px',
+                                padding: '2px 6px',
+                                backgroundColor: '#dc3545',
+                                color: 'white',
+                                borderRadius: '3px',
+                                fontSize: '0.7em',
+                                fontWeight: 'bold'
+                              }}>
+                                HIGHLIGHTED
+                              </span>
+                            )} */}
+
+                            <button
+                              style={{
+                                marginLeft: '8px',
+                                padding: '6px 12px',
+                                backgroundColor: highlightedEntity === e.handle ? '#0056b3' : '#007bff',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: 'pointer',
+                                fontSize: '0.8em',
+                                fontWeight: highlightedEntity === e.handle ? 'bold' : 'normal'
+                              }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setHighlightedEntity(e.handle);
+                              }}
+                              title="Highlight this entity"
+                            >
+                              {highlightedEntity === e.handle ? 'Viewing' : 'Highlight'}
+                            </button>
+
+                            <button
+                              style={{
+                                marginLeft: '8px',
+                                padding: '6px 12px',
+                                backgroundColor: '#dc3545',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: 'pointer',
+                                fontSize: '0.8em',
+                                fontWeight: 'bold'
+                              }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDeleteEntity(e.handle, { source: 'entity-dialog' });
+                              }}
+                              title="Delete this entity"
+                            >
+                              Delete
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Dialog Actions */}
+              <div style={{
+                marginTop: '1rem',
+                paddingTop: '1rem',
+                borderTop: '1px solid #eee',
+                display: 'flex',
+                gap: '10px',
+                justifyContent: 'flex-end',
+                flexWrap: 'wrap'
+              }}>
+                <button
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#6c757d',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                  onClick={handleSelectAllEntities}
+                >
+                  Show All
+                </button>
+                <button
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#6c757d',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                  onClick={handleDeselectAllEntities}
+                >
+                  Hide All
+                </button>
+                <button
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#007bff',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => setShowEntitiesDialog(false)}
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>
@@ -2134,7 +2437,7 @@ export default function App() {
                                           if (entity.handle) {
                                             setHighlightedEntity(entity.handle);
                                             if (dbRef.current) {
-                                              const svgText = convertToSvg(dbRef.current, [], visibleLayers, entity.handle);
+                                              const svgText = convertToSvg(dbRef.current, [], visibleLayers, entity.handle, visibleEntities);
                                               setSvg(svgText);
                                             }
                                           }
