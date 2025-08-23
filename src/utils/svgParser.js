@@ -27,10 +27,10 @@ function parseElement(element, inheritedTransform = '') {
     children: []
   };
   // console.log("node:", node);
-  
-  // if (tag === 'text' || tag === 'mtext') {
-  //   node.textContent = element.textContent || '';
-  // }
+
+  if (tag === 'text' || tag === 'mtext') {
+    node.textContent = element.textContent || '';
+  }
 
   if (element.children && element.children.length > 0) {
     for (const child of element.children) {
@@ -41,7 +41,7 @@ function parseElement(element, inheritedTransform = '') {
   return node;
 }
 
-export function parseSvgContent(svgString) { 
+export function parseSvgContent(svgString) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(svgString, 'image/svg+xml');
   const svg = doc.querySelector('svg');
@@ -62,7 +62,7 @@ export function parseSvgContent(svgString) {
 }
 
 function generateElementString(el, indent = 2) {
-  const { type, attributes, children, transform } = el;
+  const { type, attributes, children, transform, textContent } = el;
   const spacing = ' '.repeat(indent);
   const attrString = Object.entries(attributes)
     .filter(([k]) => k !== 'children')
@@ -78,6 +78,10 @@ function generateElementString(el, indent = 2) {
   // } else {
   //   return `${spacing}<${type}${transformAttr} ${attrString} />`;
   // }
+  if (children && children.length > 0) {
+    const inner = children.map(c => generateElementString(c, indent + 2)).join('\n');
+    return `${spacing}<${type}${transformAttr} ${attrString}>\n${inner}\n${spacing}</${type}>`;
+  }
 
   if (type === 'text' || type === 'mtext') {
     return `${spacing}<${type}${transformAttr} ${attrString}>${textContent || ''}</${type}>`;

@@ -11,9 +11,11 @@
   will-change: filter;
   transition: filter 300ms;
 }
+
 .logo:hover {
   filter: drop-shadow(0 0 2em #646cffaa);
 }
+
 .logo.react:hover {
   filter: drop-shadow(0 0 2em #61dafbaa);
 }
@@ -22,6 +24,7 @@
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
@@ -63,11 +66,15 @@
   transition: all 0.3s ease;
 }
 
+.clickable-entity {
+  pointer-events: all;
+}
+
 .dwg-svg-info {
   position: absolute;
   top: 10px;
   right: 10px;
-  background: rgba(0,0,0,0.7);
+  background: rgba(0, 0, 0, 0.7);
   color: white;
   padding: 5px 10px;
   border-radius: 4px;
@@ -81,4 +88,268 @@
   max-width: 100% !important;
   max-height: 100% !important;
   object-fit: contain;
+}
+
+
+
+
+
+
+/* Enhanced styling for DWG to SVG converter with delete functionality */
+
+.app-container {
+  margin: 2rem;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.file-input-section {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.file-input-label {
+  font-weight: 600;
+  display: block;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.loading-message {
+  margin-top: 12px;
+  padding: 12px;
+  background: #eef5ff;
+  border: 1px solid #cfe0ff;
+  border-radius: 6px;
+  color: #0066cc;
+}
+
+.error-message {
+  margin-top: 12px;
+  padding: 12px;
+  background: #fde8e8;
+  border: 1px solid #f5b5b5;
+  border-radius: 6px;
+  color: #8a1f1f;
+}
+
+.file-info {
+  margin-top: 12px;
+  font-size: 14px;
+  color: #666;
+}
+
+.file-info div {
+  margin-bottom: 4px;
+}
+
+.action-buttons {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.action-buttons button {
+  background: #007acc;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.action-buttons button:hover:not(:disabled) {
+  background: #005ea6;
+}
+
+.action-buttons button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.svg-preview {
+  border: 1px solid #eee;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.svg-preview-header {
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.svg-preview-header strong {
+  color: #333;
+}
+
+.delete-instruction {
+  font-size: 14px;
+  color: #666;
+  font-style: italic;
+}
+
+.svg-container {
+  width: 100%;
+  height: min(80vh, 900px);
+  display: grid;
+  place-items: center;
+  background: white;
+  position: relative;
+}
+
+.svg-container svg {
+  max-width: 100%;
+  max-height: 100%;
+  border: 1px solid #f0f0f0;
+}
+
+.layer-management {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.layer-management h3 {
+  margin: 0 0 16px 0;
+  color: #333;
+}
+
+.layer-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.layer-controls button {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.layer-controls button:hover {
+  background: #5a6268;
+}
+
+.layer-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.layer-item {
+  display: flex;
+  align-items: center;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: white;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.layer-item.deleted {
+  background: #fee;
+  opacity: 0.6;
+}
+
+.layer-item label {
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.layer-item input[type="checkbox"] {
+  margin-right: 6px;
+}
+
+.layer-name {
+  font-size: 13px;
+}
+
+.layer-name.deleted {
+  text-decoration: line-through;
+  color: #999;
+}
+
+.delete-layer-btn {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  margin: 2px;
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  min-width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.delete-layer-btn:hover {
+  background: #c82333;
+}
+
+/* SVG entity styling - enhanced for better interaction with shortened class names */
+.e {
+  cursor: pointer !important;
+  transition: all 0.2s ease;
+}
+
+.e:hover {
+  opacity: 0.7 !important;
+  stroke-width: 2 !important;
+  filter: drop-shadow(0 0 3px rgba(0, 123, 255, 0.5));
+}
+
+.highlighted-entity {
+  stroke: #ff0000 !important;
+  stroke-width: 3 !important;
+  filter: drop-shadow(0 0 5px rgba(255, 0, 0, 0.7));
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .app-container {
+    margin: 1rem;
+    padding: 1rem;
+  }
+
+  .action-buttons {
+    flex-direction: column;
+  }
+
+  .action-buttons button {
+    width: 100%;
+  }
+
+  .layer-list {
+    flex-direction: column;
+  }
+
+  .layer-item {
+    width: 100%;
+  }
 }

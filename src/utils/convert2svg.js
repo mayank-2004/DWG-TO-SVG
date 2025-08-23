@@ -431,6 +431,41 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     }
   };
 
+  const validateAndFixBounds = () => {
+    if (!bounds.valid || bounds.minX === Infinity || bounds.maxX === -Infinity) {
+      console.warn('Invalid bounds detected, resetting...');
+      bounds.minX = 0;
+      bounds.minY = 0;
+      bounds.maxX = 100;
+      bounds.maxY = 100;
+      bounds.valid = true;
+      return;
+    }
+
+    const width = bounds.maxX - bounds.minX;
+    const height = bounds.maxY - bounds.minY;
+
+    if (width < 10 || height < 10) {
+      console.warn(`Tiny bounds detected: ${width} x ${height}, expanding...`);
+      const centerX = (bounds.minX + bounds.maxX) / 2;
+      const centerY = (bounds.minY + bounds.maxY) / 2;
+      const minSize = Math.max(width * 10, height * 10, 1000);
+
+      bounds.minX = centerX - minSize / 2;
+      bounds.maxX = centerX + minSize / 2;
+      bounds.minY = centerY - minSize / 2;
+      bounds.maxY = centerY + minSize / 2;
+    }
+
+    if (width > 1000000 || height > 1000000) {
+      console.warn(`Huge bounds detected: ${width} x ${height}, capping...`);
+      bounds.minX = Math.max(bounds.minX, -50000);
+      bounds.maxX = Math.min(bounds.maxX, 50000);
+      bounds.minY = Math.max(bounds.minY, -50000);
+      bounds.maxY = Math.min(bounds.maxY, 50000);
+    }
+  };
+
   const xmlEscapeMap = new Map([
     ['&', '&amp;'],
     ['<', '&lt;'],
@@ -466,22 +501,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return false;
       }
     }
-
-    // Skip circular entities from annotation and symbol layers
-    // if (['CIRCLE', 'ARC', 'ELLIPSE'].includes(entity.type)) {
-    //   const problematicLayers = [
-    //     'G-ANNO-SYMB', 'A-GLAZ-CWMG', 'DEFPOINTS', 'Dims', 'DIMENSIONS',
-    //     'TEXT', 'ANNOTATION', 'SYMBOLS', 'TITLE', 'BORDER', 'VIEWPORT',
-    //     'XREF', 'BLOCKS', 'HATCH', 'PATTERN'
-    //   ];
-
-    //   if (entity.layer && problematicLayers.some(layer =>
-    //     entity.layer.toUpperCase().includes(layer.toUpperCase())
-    //   )) {
-    //     console.log(`Filtering out ${entity.type} from annotation layer: ${entity.layer}`);
-    //     return false;
-    //   }
-    // }
 
     if (entity.layer && !isLayerVisible(entity.layer)) {
       console.log(`Skipping entity on hidden layer: ${entity.layer} (type: ${entity.type})`);
@@ -702,7 +721,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
   const spatialHashEntities = (entities, gridSize = 50) => {
     const grid = new Map();
-    // const getGridKey = (x, y) => `${Math.floor(x / gridSize)}_${Math.floor(y / gridSize)}`;
     const add = (key, ent) => { if (!grid.has(key)) grid.set(key, []); grid.get(key).push(ent); };
 
     entities.forEach(entity => {
@@ -824,7 +842,6 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return;
       }
 
-      // Group by spatial proximity
       const spatialGroups = [];
       const tolerance = 10;
 
@@ -951,6 +968,22 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
     simplified.push(points[points.length - 1]);
     return simplified;
+  };
+
+  const snapAndCullPolyline = (pts, snap = 0.25, minSeg = 0.5) => {
+    if (!Array.isArray(pts) || pts.length < 2) return pts || [];
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const p = { x: Math.round(pts[i].x / snap) * snap, y: Math.round(pts[i].y / snap) * snap };
+      const prev = out[out.length - 1];
+      // drop segments shorter than minSeg
+      if (Math.hypot(p.x - prev.x, p.y - prev.y) >= minSeg) out.push(p);
+    }
+    // de-dup last point if identical to first for closed shapes
+    if (out.length > 2 && out[0].x === out[out.length - 1].x && out[0].y === out[out.length - 1].y) {
+      out.pop();
+    }
+    return out;
   };
 
   const removePreciseDuplicates = (entities) => {
@@ -1197,7 +1230,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return '';
       }
 
-      return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke}/>`;
+      // return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke}/>`;
+      return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
     },
     // ARC: (e, color, stroke, transforms) => {
     //   if (!e.center || !Number.isFinite(e.radius)) return null;
@@ -1247,7 +1281,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
       // return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(originalRadius)}" fill="yellow" />`;
       const adjustedRadius = originalRadius * 1; // or 0.3 to make them smaller
-      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(adjustedRadius)}" fill="yellow" />`;
+      // return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(adjustedRadius)}" fill="yellow" />`;
+      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(adjustedRadius)}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
     },
     // ELLIPSE: (e, color, stroke, transforms) => {
     //   if (!e.center || !e.majorAxisEndPoint) return null;
@@ -1270,7 +1305,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
 
       const tol = config.simplifyTolerance || 0.1;
-      const verts = simplifyPolyline(e.vertices, tol);
+      const verts = snapAndCullPolyline(simplifyPolyline(e.vertices, tol), 0.25, 0.5);
       const points = verts.map(v => {
         const [x, y] = applyTransform(v.x, v.y, transforms);
         updateBounds(x, y, 'LWPOLYLINE', e.handle);
@@ -1293,14 +1328,15 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return '';
       }
       const tag = isClosed ? "polygon" : "polyline";
-      return `<${tag} points="${points.join(' ')}" ${stroke}/>`;
+      // return `<${tag} points="${points.join(' ')}" ${stroke}/>`;
+      return `<${tag} points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
     },
 
     POLYGON: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 3) return null;
 
       const tol = config.simplifyTolerance || 0.1;
-      const verts = simplifyPolyline(e.vertices, tol);
+      const verts = snapAndCullPolyline(simplifyPolyline(e.vertices, tol), 0.25, 0.5);
       const points = verts.map(v => {
         const [x, y] = applyTransform(v.x, v.y, transforms);
         updateBounds(x, y, 'LWPOLYLINE', e.handle);
@@ -1320,14 +1356,15 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return '';
       }
 
-      return `<polygon points="${points.join(' ')}" ${stroke}/>`;
+      // return `<polygon points="${points.join(' ')}" ${stroke}/>`;
+      return `<polygon points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
     },
 
     POLYLINE: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
 
       const tol = config.simplifyTolerance || 0.1;
-      const verts = simplifyPolyline(e.vertices, tol);
+      const verts = snapAndCullPolyline(simplifyPolyline(e.vertices, tol), 0.25, 0.5);
       const points = verts.map(v => {
         const [x, y] = applyTransform(v.x, v.y, transforms);
         updateBounds(x, y, 'LWPOLYLINE', e.handle);
@@ -1346,7 +1383,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return '';
       }
 
-      return `<polyline points="${points.join(' ')}" ${stroke}/>`;
+      // return `<polyline points="${points.join(' ')}" ${stroke}/>`;
+      return `<polyline points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
     },
 
     OLE2FRAME: (e, color, stroke, transforms) => {
@@ -1372,7 +1410,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       }
 
       const frameStroke = stroke.replace(/fill="[^"]*"\s*/, '') + ' stroke-dasharray="5,5"';
-      return `<rect x="${round(minX)}" y="${round(minY)}" width="${round(width)}" height="${round(height)}" ${frameStroke}/>`;
+      // return `<rect x="${round(minX)}" y="${round(minY)}" width="${round(width)}" height="${round(height)}" ${frameStroke}/>`;
+      return `<rect x="${round(minX)}" y="${round(minY)}" width="${round(width)}" height="${round(height)}" ${frameStroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
     },
 
     HATCH: (e, color, stroke, transforms) => {
@@ -1492,7 +1531,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const pointSize = Math.max(0.5, config.strokeWidth || 0.5);
       const pointColor = `rgb(${color.r},${color.g},${color.b})`;
 
-      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${pointSize}" fill="${pointColor}" opacity="0.3" />`;
+      // return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${pointSize}" fill="${pointColor}" opacity="0.3" />`;
+      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${pointSize}" fill="${pointColor}" data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
+
     },
 
     SPLINE: (e, color, stroke, transforms) => {
@@ -1509,7 +1550,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       });
 
       return config.simplifySplines
-        ? `<polyline points="${transformedPoints.join(' ')}" ${stroke}/>`
+        ? `<polyline points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`
         : `<path d="${transformedPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.replace(',', ' ')}`).join(' ')}" ${stroke}/>`;
     },
 
@@ -1536,7 +1577,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       }
 
       const solidStroke = stroke.replace(/fill="[^"]*"/, `fill="rgb(${color},${color},${color})"`);
-      return `<polygon points="${points.join(' ')}" ${solidStroke}/>`;
+      // return `<polygon points="${points.join(' ')}" ${solidStroke}/>`;
+      return `<polygon points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
     },
 
     '3DFACE': (e, color, stroke, transforms) => {
@@ -1562,7 +1604,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return '';
       }
 
-      return `<polygon points="${points.join(' ')}" ${stroke}/>`;
+      // return `<polygon points="${points.join(' ')}" ${stroke}/>`;
+      return `<polygon points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
     },
 
     LEADER: (e, color, stroke, transforms) => {
@@ -1633,7 +1676,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         updateBounds(x1, y1, 'LEADER', e.handle);
         updateBounds(x2, y2, 'LEADER', e.handle);
 
-        items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke}/>`);
+        items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`);
       }
 
       return items.length > 0 ? items.join('') : null;
@@ -1657,7 +1700,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
           addPathSegment(attrs, `M${round(x1)} ${round(y1)} L${round(x2)} ${round(y2)} `);
         } else {
           const mlineStroke = stroke.replace(/stroke-width="[^"]*"/, 'stroke-width="4"');
-          items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${mlineStroke}/>`);
+          items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`);
         }
       }
       return config.aggregatePaths ? '' : (items.length > 0 ? items.join('') : null);
@@ -2097,41 +2140,6 @@ ${blockContent.map(content => ` ${content}`).join('\n')}
     return defs.length > 0 ? `<defs>
 ${defs.join('\n')}
 </defs>` : '';
-  };
-
-  const validateAndFixBounds = () => {
-    if (!bounds.valid || bounds.minX === Infinity || bounds.maxX === -Infinity) {
-      console.warn('Invalid bounds detected, resetting...');
-      bounds.minX = 0;
-      bounds.minY = 0;
-      bounds.maxX = 100;
-      bounds.maxY = 100;
-      bounds.valid = true;
-      return;
-    }
-
-    const width = bounds.maxX - bounds.minX;
-    const height = bounds.maxY - bounds.minY;
-
-    if (width < 10 || height < 10) {
-      console.warn(`Tiny bounds detected: ${width} x ${height}, expanding...`);
-      const centerX = (bounds.minX + bounds.maxX) / 2;
-      const centerY = (bounds.minY + bounds.maxY) / 2;
-      const minSize = Math.max(width * 10, height * 10, 1000);
-
-      bounds.minX = centerX - minSize / 2;
-      bounds.maxX = centerX + minSize / 2;
-      bounds.minY = centerY - minSize / 2;
-      bounds.maxY = centerY + minSize / 2;
-    }
-
-    if (width > 1000000 || height > 1000000) {
-      console.warn(`Huge bounds detected: ${width} x ${height}, capping...`);
-      bounds.minX = Math.max(bounds.minX, -50000);
-      bounds.maxX = Math.min(bounds.maxX, 50000);
-      bounds.minY = Math.max(bounds.minY, -50000);
-      bounds.maxY = Math.min(bounds.maxY, 50000);
-    }
   };
 
   const generateSVGContent = () => {

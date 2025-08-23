@@ -133,6 +133,16 @@ export default function App() {
     setShowEntitiesDialog(true);
   };
 
+  const handleCloseEntitiesDialog = () => {
+    setShowEntitiesDialog(false);
+    setSelectedLayer(null);
+    setVisibleEntities([]); // clear entity-level filter
+    if (dbRef.current) {
+      const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, []); // render *all* for current layer toggles
+      setSvg(svgText);
+    }
+  };
+
   const handle = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -423,7 +433,8 @@ export default function App() {
 
             // If we're viewing entities dialog for this layer, close it
             if (selectedLayer === deletedEntityLayer) {
-              setShowEntitiesDialog(false);
+              // setShowEntitiesDialog(false);
+              handleCloseEntitiesDialog()
               setSelectedLayer(null);
             }
           }
@@ -539,7 +550,8 @@ export default function App() {
 
           // If we're viewing entities dialog for this layer, close it
           if (selectedLayer === deletedEntityLayer) {
-            setShowEntitiesDialog(false);
+            // setShowEntitiesDialog(false);
+            handleCloseEntitiesDialog();
             setSelectedLayer(null);
           }
         }
@@ -638,7 +650,7 @@ export default function App() {
 
     if (dbRef.current) {
       console.log('Re-rendering SVG with visible entities:', updated);
-      const svgText = convertToSvg(dbRef.current, updated, visibleLayers, highlightedEntity, visibleEntities);
+      const svgText = convertToSvg(dbRef.current, [], visibleLayers, highlightedEntity, updated);
       setSvg(svgText);
     }
   };
@@ -650,7 +662,7 @@ export default function App() {
     setVisibleEntities(allEntityHandles);
 
     if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, allEntityHandles, visibleLayers, highlightedEntity, visibleEntities);
+      const svgText = convertToSvg(dbRef.current, [], visibleLayers, highlightedEntity, allEntityHandles);
       setSvg(svgText);
     }
   };
@@ -988,6 +1000,14 @@ export default function App() {
     }
   }, [showEntitiesDialog, selectedLayer]);
 
+  useEffect(() => {
+    if (!showEntitiesDialog && dbRef.current) {
+      const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, []);
+      setSvg(svgText);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showEntitiesDialog]);
+
   const handleSelectionMouseDown = (event) => {
     if (!selectionMode) return;
 
@@ -1048,10 +1068,21 @@ export default function App() {
     if (!svg) return;
 
     try {
-      const blob = new Blob([svg], { type: "image/svg+xml" });
+      if (!dbRef.current) throw new Error('No drawing loaded');
+      // Force an export-optimized render: aggregated paths, minified output
+      const optimizedSvg = convertToSvg(
+        dbRef.current,
+        [],
+        visibleLayers.length ? visibleLayers : null,  // respect current layer picks
+        null,
+        [], // don't restrict entities on export
+        { aggregateForExport: true } // <--- key line for small output
+      );
+
+      const blob = new Blob([optimizedSvg], { type: "image/svg+xml" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = name || "drawing.svg";
+      a.download = (name || "drawing").replace(/\.svg$/i, "") + "_optimized.svg";
       a.click();
       URL.revokeObjectURL(a.href);
     } catch (err) {
@@ -1623,7 +1654,6 @@ export default function App() {
             boxShadow: '-4px 0 20px rgba(0,0,0,0.15)',
             borderLeft: '1px solid #eee',
             overflowY: 'auto',
-            // transition: 'right 0.2s'
           }}>
             <div style={{
               background: 'white',
@@ -1677,7 +1707,8 @@ export default function App() {
                           cursor: 'pointer',
                           marginTop: '10px'
                         }}
-                        onClick={() => setShowEntitiesDialog(false)}
+                        // onClick={() => setShowEntitiesDialog(false)}
+                        onClick={() => handleCloseEntitiesDialog()}
                       >
                         Close Dialog
                       </button>
@@ -1709,9 +1740,6 @@ export default function App() {
                             display: 'flex',
                             alignItems: 'center',
                             cursor: 'pointer',
-                            // transition: 'all 0.3s ease',
-                            // transform: highlightedEntity === e.handle ? 'scale(1.01)' : 'scale(1)',
-                            // boxShadow: highlightedEntity === e.handle ? '0 4px 12px rgba(220, 53, 69, 0.3)' : 'none',
                             opacity: visibleEntities.includes(e.handle) ? 1 : 0.6
                           }}
                             onMouseEnter={() => {
@@ -1751,7 +1779,6 @@ export default function App() {
                                 backgroundColor: '#dc3545',
                                 borderRadius: '50%',
                                 marginRight: '8px',
-                                // animation: 'pulse 1s infinite'
                               }} />
                             )}
 
@@ -1774,21 +1801,6 @@ export default function App() {
                                 </span>
                               )}
                             </span>
-{/* 
-                            {highlightedEntity === e.handle && (
-                              <span style={{
-                                marginLeft: '8px',
-                                padding: '2px 6px',
-                                backgroundColor: '#dc3545',
-                                color: 'white',
-                                borderRadius: '3px',
-                                fontSize: '0.7em',
-                                fontWeight: 'bold'
-                              }}>
-                                HIGHLIGHTED
-                              </span>
-                            )} */}
-
                             <button
                               style={{
                                 marginLeft: '8px',
@@ -1883,7 +1895,8 @@ export default function App() {
                     borderRadius: '4px',
                     cursor: 'pointer'
                   }}
-                  onClick={() => setShowEntitiesDialog(false)}
+                  // onClick={() => setShowEntitiesDialog(false)}
+                  onClick={() => handleCloseEntitiesDialog()}
                 >
                   Close
                 </button>
@@ -2461,17 +2474,6 @@ export default function App() {
           )}
         </div>
       )}
-      {/* <style>{`
-        @keyframes highlight-pulse {
-          0% { opacity: 0.3; transform: scale(1); }
-          100% { opacity: 0.8; transform: scale(1.02); }
-        }
-        @keyframes pulse {
-          0% { opacity: 1; }
-          50% { opacity: 0.5; }
-          100% { opacity: 1; }
-        }
-      `}</style> */}
     </div>
   );
 }
