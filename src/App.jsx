@@ -74,19 +74,19 @@ export default function App() {
     }
 
     // Additional search in header/tables if entities might be there
-    if (db.tables) {
-      console.log('Checking other tables...');
-      for (const [tableName, table] of Object.entries(db.tables)) {
-        if (table.entries && Array.isArray(table.entries)) {
-          for (const entry of table.entries) {
-            if (entry.handle === handleNum || entry.handle === handleStr || String(entry.handle) === handleStr) {
-              console.log(`Found entity in table "${tableName}"`);
-              return { entity: entry, location: 'table', blockName: tableName };
-            }
-          }
-        }
-      }
-    }
+    // if (db.tables) {
+    //   console.log('Checking other tables...');
+    //   for (const [tableName, table] of Object.entries(db.tables)) {
+    //     if (table.entries && Array.isArray(table.entries)) {
+    //       for (const entry of table.entries) {
+    //         if (entry.handle === handleNum || entry.handle === handleStr || String(entry.handle) === handleStr) {
+    //           console.log(`Found entity in table "${tableName}"`);
+    //           return { entity: entry, location: 'table', blockName: tableName };
+    //         }
+    //       }
+    //     }
+    //   }
+    // }
 
     console.log(`Entity with handle ${handle} not found anywhere`);
     return null;

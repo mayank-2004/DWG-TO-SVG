@@ -21,6 +21,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   const renderedHandles = new Set();
   const blockIdCounter = { value: 0 };
   const skippedByLayer = new Map();
+  const geometryKeys = new Set();
 
   const config = {
     hideDimensions: true,
@@ -1221,17 +1222,24 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const [x1, y1] = applyTransform(start.x, start.y, transforms);
       const [x2, y2] = applyTransform(end.x, end.y, transforms);
 
+      const rx1 = round(x1), ry1 = round(y1), rx2 = round(x2), ry2 = round(y2);
+      const key = (rx1 < rx2 || (rx1 === rx2 && ry1 < ry2))
+        ? `L:${rx1},${ry1},${rx2},${ry2}`
+        : `L:${rx2},${ry2},${rx1},${ry1}`;
+      if (geometryKeys.has(key)) return '';
+      geometryKeys.add(key);
+
       updateBounds(x1, y1, 'LINE', e.handle);
       updateBounds(x2, y2, 'LINE', e.handle);
 
       if (config.aggregatePaths) {
         const attrs = getMinStrokeAttrs(stroke);
-        addPathSegment(attrs, `M${round(x1)} ${round(y1)} L${round(x2)} ${round(y2)} `);
+        addPathSegment(attrs, `M${rx1} ${ry1} L${rx2} ${ry2} `);
         return '';
       }
 
-      // return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke}/>`;
-      return `<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
+      const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+      return `<line x1="${rx1}" y1="${ry1}" x2="${rx2}" y2="${ry2}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
     },
     // ARC: (e, color, stroke, transforms) => {
     //   if (!e.center || !Number.isFinite(e.radius)) return null;
@@ -1276,13 +1284,17 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const [cx, cy] = applyTransform(e.center.x, e.center.y, transforms);
       const originalRadius = e.radius;
 
+      const rcx = round(cx), rcy = round(cy);
+      const adjustedRadius = round(originalRadius * 1);
+      const key = `C:${rcx},${rcy},${adjustedRadius}`;
+      if (geometryKeys.has(key)) return '';
+      geometryKeys.add(key);
+
       updateBounds(cx - originalRadius, cy - originalRadius, 'CIRCLE', e.handle);
       updateBounds(cx + originalRadius, cy + originalRadius, 'CIRCLE', e.handle);
 
-      // return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(originalRadius)}" fill="yellow" />`;
-      const adjustedRadius = originalRadius * 1; // or 0.3 to make them smaller
-      // return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(adjustedRadius)}" fill="yellow" />`;
-      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(adjustedRadius)}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
+      const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+      return `<circle cx="${rcx}" cy="${rcy}" r="${adjustedRadius}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
     },
     // ELLIPSE: (e, color, stroke, transforms) => {
     //   if (!e.center || !e.majorAxisEndPoint) return null;
@@ -1313,6 +1325,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       });
 
       const isClosed = e.closed || e.flags === 1;
+      const key = `PL:${points.join(';')}${isClosed ? 'Z' : ''}`;
+      if (geometryKeys.has(key)) return '';
+      geometryKeys.add(key);
+
       if (config.aggregatePaths) {
         const attrs = getMinStrokeAttrs(stroke);
         if (points.length >= 2) {
@@ -1328,10 +1344,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return '';
       }
       const tag = isClosed ? "polygon" : "polyline";
-      // return `<${tag} points="${points.join(' ')}" ${stroke}/>`;
-      return `<${tag} points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
+      const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+      return `<${tag} points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
     },
-
     POLYGON: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 3) return null;
 
@@ -1342,6 +1357,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         updateBounds(x, y, 'LWPOLYLINE', e.handle);
         return `${round(x)},${round(y)}`;
       });
+
+      const key = `PG:${points.join(';')}`;
+      if (geometryKeys.has(key)) return '';
+      geometryKeys.add(key);
 
       if (config.aggregatePaths) {
         const attrs = getMinStrokeAttrs(stroke);
@@ -1356,10 +1375,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return '';
       }
 
-      // return `<polygon points="${points.join(' ')}" ${stroke}/>`;
-      return `<polygon points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
+      const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+      return `<polygon points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
     },
-
     POLYLINE: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 2) return null;
 
@@ -1370,6 +1388,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         updateBounds(x, y, 'LWPOLYLINE', e.handle);
         return `${round(x)},${round(y)}`;
       });
+
+      const key = `PL:${points.join(';')}`;
+      if (geometryKeys.has(key)) return '';
+      geometryKeys.add(key);
 
       if (config.aggregatePaths) {
         const attrs = getMinStrokeAttrs(stroke);
@@ -1383,10 +1405,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return '';
       }
 
-      // return `<polyline points="${points.join(' ')}" ${stroke}/>`;
-      return `<polyline points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
+      const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+      return `<polyline points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
     },
-
     OLE2FRAME: (e, color, stroke, transforms) => {
       if (!e.lowerLeft || !e.upperRight) return null;
 
@@ -1398,22 +1419,25 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const width = Math.abs(x2 - x1);
       const height = Math.abs(y2 - y1);
 
+      const rx = round(minX), ry = round(minY), rw = round(width), rh = round(height);
+      const key = `R:${rx},${ry},${rw},${rh}`;
+      if (geometryKeys.has(key)) return '';
+      geometryKeys.add(key);
+
       updateBounds(minX, minY, 'OLE2FRAME', e.handle);
       updateBounds(minX + width, minY + height, 'OLE2FRAME', e.handle);
 
       if (config.aggregatePaths) {
         const attrs = getMinStrokeAttrs(stroke);
-        const x = round(minX), y = round(minY), w = round(width), h = round(height);
-        const d = `M${x} ${y} L${x + w} ${y} L${x + w} ${y + h} L${x} ${y + h} Z `;
+        const d = `M${rx} ${ry} L${rx + rw} ${ry} L${rx + rw} ${ry + rh} L${rx} ${ry + rh} Z `;
         addPathSegment(attrs, d);
         return '';
       }
 
       const frameStroke = stroke.replace(/fill="[^"]*"\s*/, '') + ' stroke-dasharray="5,5"';
-      // return `<rect x="${round(minX)}" y="${round(minY)}" width="${round(width)}" height="${round(height)}" ${frameStroke}/>`;
-      return `<rect x="${round(minX)}" y="${round(minY)}" width="${round(width)}" height="${round(height)}" ${frameStroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
+      const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+      return `<rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" ${frameStroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
     },
-
     HATCH: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.boundaryPaths)) return null;
       const paths = [];
@@ -1525,17 +1549,19 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       if (config.hidePoints || !e.position) return null;
 
       const [cx, cy] = applyTransform(e.position.x, e.position.y, transforms);
+      const rcx = round(cx), rcy = round(cy);
+      const key = `PT:${rcx},${rcy}`;
+      if (geometryKeys.has(key)) return '';
+      geometryKeys.add(key);
 
       updateBounds(cx, cy, 'POINT', e.handle);
 
       const pointSize = Math.max(0.5, config.strokeWidth || 0.5);
       const pointColor = `rgb(${color.r},${color.g},${color.b})`;
 
-      // return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${pointSize}" fill="${pointColor}" opacity="0.3" />`;
-      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${pointSize}" fill="${pointColor}" data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
-
+      const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+      return `<circle cx="${rcx}" cy="${rcy}" r="${pointSize}" fill="${pointColor}" data-handle="${e.handle ?? ''}"${layerAttr}/>`;
     },
-
     SPLINE: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.controlPoints) && !Array.isArray(e.fitPoints)) return null;
 
@@ -1549,11 +1575,16 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return `${round(x)},${round(y)}`;
       });
 
-      return config.simplifySplines
-        ? `<polyline points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`
-        : `<path d="${transformedPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.replace(',', ' ')}`).join(' ')}" ${stroke}/>`;
-    },
+      const key = `SP:${transformedPoints.join(';')}`;
+      if (geometryKeys.has(key)) return '';
+      geometryKeys.add(key);
 
+      const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+
+      return config.simplifySplines
+        ? `<polyline points="${transformedPoints.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`
+        : `<path d="${transformedPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.replace(',', ' ')}`).join(' ')}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
+    },
     SOLID: (e, color, stroke, transforms) => {
       if (!e.corners || e.corners.length < 3) return null;
 
@@ -1562,6 +1593,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         updateBounds(x, y, 'SOLID', e.handle);
         return `${round(x)},${round(y)}`;
       });
+
+      const key = `SO:${points.join(';')}`;
+      if (geometryKeys.has(key)) return '';
+      geometryKeys.add(key);
 
       if (config.aggregatePaths) {
         const attrs = getMinStrokeAttrs(stroke);
@@ -1576,11 +1611,9 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return '';
       }
 
-      const solidStroke = stroke.replace(/fill="[^"]*"/, `fill="rgb(${color},${color},${color})"`);
-      // return `<polygon points="${points.join(' ')}" ${solidStroke}/>`;
-      return `<polygon points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
+      const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+      return `<polygon points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
     },
-
     '3DFACE': (e, color, stroke, transforms) => {
       const corners = [e.corner1, e.corner2, e.corner3, e.corner4].filter(Boolean);
       if (corners.length < 3) return null;
@@ -1591,6 +1624,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return `${round(x)},${round(y)}`;
       });
 
+      const key = `F:${points.join(';')}`;
+      if (geometryKeys.has(key)) return '';
+      geometryKeys.add(key);
+
       if (config.aggregatePaths) {
         const attrs = getMinStrokeAttrs(stroke);
         const [sx, sy] = points[0].split(',');
@@ -1604,8 +1641,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         return '';
       }
 
-      // return `<polygon points="${points.join(' ')}" ${stroke}/>`;
-      return `<polygon points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`;
+      const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+      return `<polygon points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
     },
 
     LEADER: (e, color, stroke, transforms) => {
@@ -1676,7 +1713,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         updateBounds(x1, y1, 'LEADER', e.handle);
         updateBounds(x2, y2, 'LEADER', e.handle);
 
-        items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`);
+        const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+        items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`);
       }
 
       return items.length > 0 ? items.join('') : null;
@@ -1700,7 +1738,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
           addPathSegment(attrs, `M${round(x1)} ${round(y1)} L${round(x2)} ${round(y2)} `);
         } else {
           const mlineStroke = stroke.replace(/stroke-width="[^"]*"/, 'stroke-width="4"');
-          items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke} data-handle="${e.handle ?? ''}" data-layer="${e.layer ?? ''}"/>`);
+          const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+          items.push(`<line x1="${round(x1)}" y1="${round(y1)}" x2="${round(x2)}" y2="${round(y2)}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`);
         }
       }
       return config.aggregatePaths ? '' : (items.length > 0 ? items.join('') : null);
