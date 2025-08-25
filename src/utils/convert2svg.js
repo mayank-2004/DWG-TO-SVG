@@ -1,4 +1,5 @@
-export function convertToSvg(db, transformStack = [], visibleLayers = null, highlightedEntityHandle = null, visibleEntities = null) {
+// export function convertToSvg(db, transformStack = [], visibleLayers = null, highlightedEntityHandle = null, visibleEntities = null) {
+export function convertToSvg(db, transformStack = [], visibleLayers = null, highlightedEntityHandle = null, visibleEntities = null, opts = {}) {
   const tables = db.tables || {};
 
   if (!tables.BLOCK_RECORD?.entries?.length && !db.entities?.length) {
@@ -31,8 +32,8 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     strokeWidth: 10,
     textSizeMultiplier: 0.3,
     minBigTextFactor: 0.018,
-    dropEntityTypes: new Set(['DIMENSION', 'LEADER', 'HATCH', 'POINT', 'ATTDEF', 'TOLERANCE', 'MLINE', 'TABLE', 'VIEWPORT']),
-    dropLayersLike: ['DEFPOINTS', 'DIMS', 'DIM', 'DIMENSIONS', 'ANNOTATION', 'ANNO', 'TEXT', 'MTEXT', 'TITLE', 'BORDER', 'SHEET', 'PLOT', 'HATCH', 'PATTERN', 'SYMB', 'SYMBOL', 'SYMBOLS', 'XREF'],
+    dropEntityTypes: new Set(['DIMENSION', 'LEADER', 'HATCH', 'POINT', 'ATTDEF', 'TOLERANCE', 'MLINE', 'TABLE', 'VIEWPORT', 'XLINE', 'RAY', 'OLE2FRAME', 'WIPEOUT', 'TRACE']),
+    dropLayersLike: ['DEFPOINTS', 'DIMS', 'DIM', 'DIMENSIONS', 'ANNOTATION', 'ANNO', 'TEXT', 'MTEXT', 'SYMB', 'SYMBOL', 'SYMBOLS', 'XREF'],
     flattenToSingleLayer: true,
     aggregatePaths: true,
     exportMinified: true,
@@ -41,7 +42,18 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     minLineLengthRatio: 0.0015,
     closedShapeAreaMinRatio: 0.00005,
     minClosedShapeAreaAbs: 5,
+    forceSingleGroup: true,
   };
+
+  // Allow export-time overrides
+  if (opts && typeof opts === 'object') {
+    if (typeof opts.decimalPlaces === 'number') config.decimalPlaces = Math.max(0, Math.min(3, opts.decimalPlaces));
+    if (typeof opts.simplifyTolerance === 'number') config.simplifyTolerance = Math.max(0, Math.min(2, opts.simplifyTolerance));
+    if (opts.aggregateForExport === true) {
+      // Export mode: aggressively coalesce
+      config.aggregatePaths = true;
+    }
+  }
 
   const round = (num) => {
     if (!Number.isFinite(num)) return 0;
@@ -694,6 +706,14 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
           minY: entity.center.y - entity.radius,
           maxY: entity.center.y + entity.radius
         };
+      case 'ARC':
+        if (!entity.center || !entity.radius) return null;
+        return {
+          minX: entity.center.x - entity.radius,
+          maxX: entity.center.x + entity.radius,
+          minY: entity.center.y - entity.radius,
+          maxY: entity.center.y + entity.radius
+        };
       case 'LINE':
         const start = entity.startPoint || entity.start;
         const end = entity.endPoint || entity.end;
@@ -715,6 +735,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
           minY: Math.min(...ys),
           maxY: Math.max(...ys)
         };
+      case 'INSERT':
+        const ip = entity.insertionPoint || entity.position;
+        if (!ip) return null;
+        return { minX: ip.x, maxX: ip.x, minY: ip.y, maxY: ip.y };
       default:
         return null;
     }
@@ -818,6 +842,45 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     const result = entities.filter((_, index) => !toRemove.has(index));
     console.log(`Identical entity removal: ${entities.length} → ${result.length} entities`);
     return result;
+  };
+
+  const computeClusterBounds = (entities) => {
+    // Examine extremes of entity bounds so outer perimeter isn't clipped
+    const xs = [];
+    const ys = [];
+    entities.forEach(e => {
+      const b = getEntityBounds(e);
+      if (!b) return;
+      xs.push(b.minX, b.maxX);
+      ys.push(b.minY, b.maxY);
+    });
+    if (xs.length === 0 || ys.length === 0) return null;
+    xs.sort((a, b) => a - b);
+    ys.sort((a, b) => a - b);
+    const q = (arr, t) => arr[Math.min(arr.length - 1, Math.max(0, Math.floor(arr.length * t)))];
+    const minX = q(xs, 0.02);
+    const maxX = q(xs, 0.98);
+    const minY = q(ys, 0.02);
+    const maxY = q(ys, 0.98);
+    const padX = (maxX - minX) * 0.05;
+    const padY = (maxY - minY) * 0.05;
+    return {
+      minX: minX - padX,
+      maxX: maxX + padX,
+      minY: minY - padY,
+      maxY: maxY + padY
+    };
+  };
+
+  const filterEntitiesWithinBounds = (entities, bounds) => {
+    if (!bounds) return entities;
+    return entities.filter(e => {
+      const b = getEntityBounds(e);
+      if (!b) return true;
+      const cx = (b.minX + b.maxX) / 2;
+      const cy = (b.minY + b.maxY) / 2;
+      return cx >= bounds.minX && cx <= bounds.maxX && cy >= bounds.minY && cy <= bounds.maxY;
+    });
   };
 
   const consolidateBlockInstances = (entities) => {
@@ -1408,36 +1471,37 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
       return `<polyline points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
     },
-    OLE2FRAME: (e, color, stroke, transforms) => {
-      if (!e.lowerLeft || !e.upperRight) return null;
+    // OLE2FRAME: (e, color, stroke, transforms) => {
+    //   if (!e.lowerLeft || !e.upperRight) return null;
 
-      const [x1, y1] = applyTransform(e.lowerLeft.x, e.lowerLeft.y, transforms);
-      const [x2, y2] = applyTransform(e.upperRight.x, e.upperRight.y, transforms);
+    //   const [x1, y1] = applyTransform(e.lowerLeft.x, e.lowerLeft.y, transforms);
+    //   const [x2, y2] = applyTransform(e.upperRight.x, e.upperRight.y, transforms);
 
-      const minX = Math.min(x1, x2);
-      const minY = Math.min(y1, y2);
-      const width = Math.abs(x2 - x1);
-      const height = Math.abs(y2 - y1);
+    //   const minX = Math.min(x1, x2);
+    //   const minY = Math.min(y1, y2);
+    //   const width = Math.abs(x2 - x1);
+    //   const height = Math.abs(y2 - y1);
 
-      const rx = round(minX), ry = round(minY), rw = round(width), rh = round(height);
-      const key = `R:${rx},${ry},${rw},${rh}`;
-      if (geometryKeys.has(key)) return '';
-      geometryKeys.add(key);
+    //   const rx = round(minX), ry = round(minY), rw = round(width), rh = round(height);
+    //   const key = `R:${rx},${ry},${rw},${rh}`;
+    //   if (geometryKeys.has(key)) return '';
+    //   geometryKeys.add(key);
 
-      updateBounds(minX, minY, 'OLE2FRAME', e.handle);
-      updateBounds(minX + width, minY + height, 'OLE2FRAME', e.handle);
+    //   updateBounds(minX, minY, 'OLE2FRAME', e.handle);
+    //   updateBounds(minX + width, minY + height, 'OLE2FRAME', e.handle);
 
-      if (config.aggregatePaths) {
-        const attrs = getMinStrokeAttrs(stroke);
-        const d = `M${rx} ${ry} L${rx + rw} ${ry} L${rx + rw} ${ry + rh} L${rx} ${ry + rh} Z `;
-        addPathSegment(attrs, d);
-        return '';
-      }
+    //   if (config.aggregatePaths) {
+    //     const attrs = getMinStrokeAttrs(stroke);
+    //     const d = `M${rx} ${ry} L${rx + rw} ${ry} L${rx + rw} ${ry + rh} L${rx} ${ry + rh} Z `;
+    //     addPathSegment(attrs, d);
+    //     return '';
+    //   }
 
-      const frameStroke = stroke.replace(/fill="[^"]*"\s*/, '') + ' stroke-dasharray="5,5"';
-      const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
-      return `<rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" ${frameStroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
-    },
+    //   const frameStroke = stroke.replace(/fill="[^"]*"\s*/, '') + ' stroke-dasharray="5,5"';
+    //   const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+    //   return `<rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" ${frameStroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
+    // },
+    OLE2FRAME: () => null,
     HATCH: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.boundaryPaths)) return null;
       const paths = [];
@@ -2016,13 +2080,10 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
 
       if (config.aggregatePaths) {
         const flushed = flushAggregatedPaths();
-        if (flushed.length > 0) {
-          content.push(`<g id="${escapeXml(source)}">${flushed.join('')}</g>`);
-        }
+        if (flushed.length > 0) content.push(flushed.join(''));
       } else if (regularElements.length > 0) {
-        content.push(`<g id="${escapeXml(source)}" class="entity-group">
-${regularElements.join('\n')}
-</g>`);
+        // single visual layer: push elements directly
+        content.push(regularElements.join('\n'));
       }
     }
 
@@ -2035,9 +2096,7 @@ ${regularElements.join('\n')}
 
     if (config.aggregatePaths) {
       const flushedAtEnd = flushAggregatedPaths();
-      if (flushedAtEnd.length > 0) {
-        content.push(`<g id="${escapeXml(source)}">${flushedAtEnd.join('')}</g>`);
-      }
+      if (flushedAtEnd.length > 0) content.push(flushedAtEnd.join(''));
     }
 
     return content;
@@ -2224,6 +2283,9 @@ ${defs.join('\n')}
       filteredEntities = consolidateBlockInstances(filteredEntities);
       filteredEntities = optimizeCircularEntities(filteredEntities);
 
+      const clusterBounds = computeClusterBounds(filteredEntities);
+      filteredEntities = filterEntitiesWithinBounds(filteredEntities, clusterBounds);
+
       const contentBounds = calculateTightBounds(filteredEntities);
       const minDim = Math.max(1, Math.min(contentBounds.maxX - contentBounds.minX, contentBounds.maxY - contentBounds.minY));
       const minLineLen = minDim * (config.minLineLengthRatio || 0.0015);
@@ -2269,7 +2331,7 @@ ${defs.join('\n')}
 
   const blockDefs = generateBlockDefinitions();
   const { content: svgElements, usedEntities } = generateSVGContent();
-  const svgContent = svgElements.join('\n');
+  const svgContent = `<g id="Layer_1">${svgElements.join('\n')}</g>`;
 
   if (!bounds.valid || bounds.minX === Infinity || bounds.maxX === -Infinity) {
     console.error('CRITICAL: No valid bounds found after processing all entities!');

@@ -136,9 +136,10 @@ export default function App() {
   const handleCloseEntitiesDialog = () => {
     setShowEntitiesDialog(false);
     setSelectedLayer(null);
-    setVisibleEntities([]); // clear entity-level filter
+    setVisibleEntities([]);
     if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, []); // render *all* for current layer toggles
+      // const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, []); 
+      const svgText = convertToSvg(dbRef.current, [], null, null, [], { aggregateForExport: false }); // render all entities in a single layer
       setSvg(svgText);
     }
   };
@@ -228,8 +229,10 @@ export default function App() {
 
       lib.dwg_free(dwg);
 
-      console.log('Converting to SVG with visible layers:', layers);
-      const svgText = convertToSvg(db, [], layers, null, []);
+      // console.log('Converting to SVG with visible layers:', layers);
+      // const svgText = convertToSvg(db, [], layers, null, []);
+      console.log('Converting DWG to single-layer SVG');
+      const svgText = convertToSvg(db, [], null, null, []);
 
       if (!svgText || svgText.includes('No data')) {
         throw new Error('Failed to convert DWG content to SVG. The file may contain unsupported entity types.');
@@ -283,7 +286,7 @@ export default function App() {
 
   function processDWGFile(dwgData) {
     // Call convertToSvg (this returns an object now)
-    const svgData = convertToSvg(dwgData, [], null, null);
+    const svgData = convertToSvg(dwgData, [], null, null, [], { aggregateForExport: false });
 
     // Create the viewer HTML
     const viewerHTML = createDWGViewer(svgData);
@@ -1070,14 +1073,7 @@ export default function App() {
     try {
       if (!dbRef.current) throw new Error('No drawing loaded');
       // Force an export-optimized render: aggregated paths, minified output
-      const optimizedSvg = convertToSvg(
-        dbRef.current,
-        [],
-        visibleLayers.length ? visibleLayers : null,  // respect current layer picks
-        null,
-        [], // don't restrict entities on export
-        { aggregateForExport: true } // <--- key line for small output
-      );
+      const optimizedSvg = convertToSvg(dbRef.current, [], null, null, [], { aggregateForExport: true, maxBytes: 2_000_000, decimalPlaces: 1, simplifyTolerance: 0.75 });
 
       const blob = new Blob([optimizedSvg], { type: "image/svg+xml" });
       const a = document.createElement("a");
