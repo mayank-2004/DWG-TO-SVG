@@ -1,4 +1,3 @@
-// export function convertToSvg(db, transformStack = [], visibleLayers = null, highlightedEntityHandle = null, visibleEntities = null) {
 export function convertToSvg(db, transformStack = [], visibleLayers = null, highlightedEntityHandle = null, visibleEntities = null, opts = {}) {
   const tables = db.tables || {};
 
@@ -545,6 +544,11 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       return true;
     }
 
+    if (isUnwantedDiagonalElement(entity)) {
+      console.log(`Filtering diagonal element: ${entity.type} on layer ${entity.layer}`);
+      return false;
+    }
+
     if (isUnwantedCircularEntity(entity)) return false;
 
     return true;
@@ -583,13 +587,112 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     return false;
   };
 
+  const isUnwantedDiagonalElement = (entity) => {
+    if (!['LINE', 'LWPOLYLINE', 'POLYLINE'].includes(entity.type)) return false;
+
+    // Check if entity is on furniture-related layers
+    const furnitureLayers = [
+      'I-FURN', 'FURNITURE', 'CHAIR', 'TABLE', 'DESK', 'BED', 'CABINET',
+      'SHELF', 'FIXTURE', 'APPLIANCE', 'EQUIP', 'SYMBOL', 'BLOCK'
+    ];
+
+    const layerName = (entity.layer || '').toUpperCase();
+    const isFurnitureLayer = furnitureLayers.some(layer =>
+      layerName.includes(layer.toUpperCase())
+    );
+
+    if (!isFurnitureLayer) return false;
+
+    // For LINE entities, check if they form diagonal patterns
+    if (entity.type === 'LINE') {
+      const start = entity.startPoint || entity.start;
+      const end = entity.endPoint || entity.end;
+
+      if (!start || !end) return false;
+
+      const dx = Math.abs(end.x - start.x);
+      const dy = Math.abs(end.y - start.y);
+
+      // Skip very short lines (likely noise)
+      const length = Math.sqrt(dx * dx + dy * dy);
+      if (length < 1) return true;
+
+      // Check if line is diagonal (45-degree-ish)
+      if (dx > 0 && dy > 0) {
+        const ratio = Math.min(dx, dy) / Math.max(dx, dy);
+        if (ratio > 0.7) { // Close to 45 degrees
+          console.log(`Filtering diagonal line in furniture layer: ${entity.layer}`);
+          return true;
+        }
+      }
+    }
+
+    // For polylines, check if they form small cross patterns
+    if (['LWPOLYLINE', 'POLYLINE'].includes(entity.type)) {
+      if (!entity.vertices || entity.vertices.length < 2) return false;
+
+      // Check for very short polylines that might be decorative elements
+      let totalLength = 0;
+      for (let i = 0; i < entity.vertices.length - 1; i++) {
+        const v1 = entity.vertices[i];
+        const v2 = entity.vertices[i + 1];
+        const segLength = Math.sqrt((v2.x - v1.x) ** 2 + (v2.y - v1.y) ** 2);
+        totalLength += segLength;
+      }
+
+      // Remove very short decorative polylines
+      if (totalLength < 10) {
+        console.log(`Filtering short decorative polyline in furniture layer: ${entity.layer}`);
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  const filterDiagonalElementsFromBlocks = (blockEntities) => {
+    if (!Array.isArray(blockEntities)) return blockEntities;
+
+    return blockEntities.filter(entity => {
+      if (!entity?.type) return false;
+
+      // Apply the same diagonal filtering to block entities
+      if (isUnwantedDiagonalElement(entity)) {
+        console.log(`Removing diagonal element from block: ${entity.type}`);
+        return false;
+      }
+
+      // Additional check for entities that form X patterns in blocks
+      if (entity.type === 'LINE') {
+        const start = entity.startPoint || entity.start;
+        const end = entity.endPoint || entity.end;
+
+        if (start && end) {
+          const dx = end.x - start.x;
+          const dy = end.y - start.y;
+          const length = Math.sqrt(dx * dx + dy * dy);
+
+          // Remove very short diagonal lines that are likely decorative
+          if (length < 20 && Math.abs(Math.abs(dx) - Math.abs(dy)) < 5) {
+            console.log(`Removing short diagonal line from block`);
+            return false;
+          }
+        }
+      }
+
+      return true;
+    });
+  };
+
   const escapeXml = (text) => String(text).replace(/[&<>"']/g, (match) => xmlEscapeMap.get(match));
 
   const blockDefinitions = new Map();
   if (tables.BLOCK_RECORD?.entries) {
     for (const blockRecord of tables.BLOCK_RECORD.entries) {
       if (blockRecord.name && blockRecord.entities) {
-        blockDefinitions.set(blockRecord.name, blockRecord.entities);
+        // Filter out unwanted diagonal elements from block definitions
+        const filteredBlockEntities = filterDiagonalElementsFromBlocks(blockRecord.entities);
+        blockDefinitions.set(blockRecord.name, filteredBlockEntities);
       }
     }
   }
@@ -1357,7 +1460,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       updateBounds(cx + originalRadius, cy + originalRadius, 'CIRCLE', e.handle);
 
       const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
-      return `<circle cx="${rcx}" cy="${rcy}" r="${adjustedRadius}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
+      return `<circle cx="${rcx}" cy="${rcy}" r="${adjustedRadius}" data-handle="${e.handle ?? ''}"${layerAttr}/>`;
     },
     // ELLIPSE: (e, color, stroke, transforms) => {
     //   if (!e.center || !e.majorAxisEndPoint) return null;
@@ -2331,6 +2434,7 @@ ${defs.join('\n')}
   const blockDefs = generateBlockDefinitions();
   const { content: svgElements, usedEntities } = generateSVGContent();
   const svgContent = `<g id="Layer_1">${svgElements.join('\n')}</g>`;
+  // const svgContent = svgElements.join('\n');
 
   if (!bounds.valid || bounds.minX === Infinity || bounds.maxX === -Infinity) {
     console.error('CRITICAL: No valid bounds found after processing all entities!');
@@ -2483,6 +2587,7 @@ ${defs.join('\n')}
     .replace(/\s*stroke-dasharray="none"/g, '')
     .replace(/\s*opacity="1"/g, '')
     .replace(/\s*id="[^\"]*"/g, config.exportMinified ? '' : '$&')
+    .replace(/\s*data-layer="[^\"]*"/g, '')
     .replace(/\s+/g, ' ')
     .replace(/\s*=\s*"/g, '="')
     .replace(/"\s+/g, '" ')

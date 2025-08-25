@@ -299,8 +299,6 @@ export default function App() {
   }
 
   const handleSvgClick = (event) => {
-    console.log('SVG clicked!', event);
-
     event.preventDefault();
     event.stopPropagation();
 
@@ -777,6 +775,12 @@ export default function App() {
     if (!dbRef.current) return [];
 
     const allEntities = [];
+    // Add main entities
+    if (dbRef.current.entities && Array.isArray(dbRef.current.entities)) {
+      dbRef.current.entities.forEach(entity => {
+        allEntities.push({ ...entity, location: 'main', blockName: null });
+      });
+    }
 
     // Add block entities
     if (dbRef.current.tables?.BLOCK_RECORD?.entries) {

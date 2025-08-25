@@ -185,15 +185,43 @@ const SVGEditor = ({ svgContent, onSvgChange }) => {
     setElements(prev => updateElementById(prev, elementId, moveLogic));
   };
 
-  const handleElementDelete = (elementId) => {
-    const deleteById = (items) => items
-      .filter(el => el.id !== elementId)
-      .map(el => ({
-        ...el,
-        children: el.children ? deleteById(el.children) : []
-      }));
+  // const handleElementDelete = (elementId) => {
+  //   const deleteById = (items) => items
+  //     .filter(el => el.id !== elementId)
+  //     .map(el => ({
+  //       ...el,
+  //       children: el.children ? deleteById(el.children) : []
+  //     }));
 
-    setElements(prev => deleteById(prev));
+  //   setElements(prev => deleteById(prev));
+  //   if (selectedElement === elementId) setSelectedElement(null);
+  // };
+  const handleElementDelete = (elementId) => {
+    const findHandle = (items, id) => {
+      for (const el of items) {
+        if (el.id === id) return el.attributes?.['data-handle'];
+        if (el.children?.length) {
+          const found = findHandle(el.children, id);
+          if (found) return found;
+        }
+      }
+      return undefined;
+    };
+
+    const handle = findHandle(elements, elementId);
+    const deleteByIdOrHandle = (items) =>
+      items
+        .filter(
+          el =>
+            el.id !== elementId &&
+            el.attributes?.['data-handle'] !== handle
+        )
+        .map(el => ({
+          ...el,
+          children: deleteByIdOrHandle(el.children || [])
+        }));
+
+    setElements(prev => deleteByIdOrHandle(prev));
     if (selectedElement === elementId) setSelectedElement(null);
   };
 
