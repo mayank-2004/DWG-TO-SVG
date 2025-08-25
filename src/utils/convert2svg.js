@@ -1471,37 +1471,36 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
       return `<polyline points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
     },
-    // OLE2FRAME: (e, color, stroke, transforms) => {
-    //   if (!e.lowerLeft || !e.upperRight) return null;
+    OLE2FRAME: (e, color, stroke, transforms) => {
+      if (!e.lowerLeft || !e.upperRight) return null;
 
-    //   const [x1, y1] = applyTransform(e.lowerLeft.x, e.lowerLeft.y, transforms);
-    //   const [x2, y2] = applyTransform(e.upperRight.x, e.upperRight.y, transforms);
+      const [x1, y1] = applyTransform(e.lowerLeft.x, e.lowerLeft.y, transforms);
+      const [x2, y2] = applyTransform(e.upperRight.x, e.upperRight.y, transforms);
 
-    //   const minX = Math.min(x1, x2);
-    //   const minY = Math.min(y1, y2);
-    //   const width = Math.abs(x2 - x1);
-    //   const height = Math.abs(y2 - y1);
+      const minX = Math.min(x1, x2);
+      const minY = Math.min(y1, y2);
+      const width = Math.abs(x2 - x1);
+      const height = Math.abs(y2 - y1);
 
-    //   const rx = round(minX), ry = round(minY), rw = round(width), rh = round(height);
-    //   const key = `R:${rx},${ry},${rw},${rh}`;
-    //   if (geometryKeys.has(key)) return '';
-    //   geometryKeys.add(key);
+      const rx = round(minX), ry = round(minY), rw = round(width), rh = round(height);
+      const key = `R:${rx},${ry},${rw},${rh}`;
+      if (geometryKeys.has(key)) return '';
+      geometryKeys.add(key);
 
-    //   updateBounds(minX, minY, 'OLE2FRAME', e.handle);
-    //   updateBounds(minX + width, minY + height, 'OLE2FRAME', e.handle);
+      updateBounds(minX, minY, 'OLE2FRAME', e.handle);
+      updateBounds(minX + width, minY + height, 'OLE2FRAME', e.handle);
 
-    //   if (config.aggregatePaths) {
-    //     const attrs = getMinStrokeAttrs(stroke);
-    //     const d = `M${rx} ${ry} L${rx + rw} ${ry} L${rx + rw} ${ry + rh} L${rx} ${ry + rh} Z `;
-    //     addPathSegment(attrs, d);
-    //     return '';
-    //   }
+      if (config.aggregatePaths) {
+        const attrs = getMinStrokeAttrs(stroke);
+        const d = `M${rx} ${ry} L${rx + rw} ${ry} L${rx + rw} ${ry + rh} L${rx} ${ry + rh} Z `;
+        addPathSegment(attrs, d);
+        return '';
+      }
 
-    //   const frameStroke = stroke.replace(/fill="[^"]*"\s*/, '') + ' stroke-dasharray="5,5"';
-    //   const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
-    //   return `<rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" ${frameStroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
-    // },
-    OLE2FRAME: () => null,
+      const frameStroke = stroke.replace(/fill="[^"]*"\s*/, '') + ' stroke-dasharray="5,5"';
+      const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+      return `<rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" ${frameStroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
+    },
     HATCH: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.boundaryPaths)) return null;
       const paths = [];
