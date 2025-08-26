@@ -2342,8 +2342,10 @@ ${defs.join('\n')}
 </defs>` : '';
   };
 
+  // Updated generateSVGContent function to create hierarchical structure
   const generateSVGContent = () => {
-    const content = [];
+    const layerGroups = new Map();
+    const typeGroups = new Map();
     const processedHandles = new Set();
     let usedEntities = [];
 
@@ -2370,12 +2372,13 @@ ${defs.join('\n')}
       if (visibleEntities && Array.isArray(visibleEntities) && visibleEntities.length > 0) {
         const beforeCount = filteredEntities.length;
         filteredEntities = filteredEntities.filter(entity => {
-          if (!entity.handle) return true; // Keep entities without handles
+          if (!entity.handle) return true;
           return visibleEntities.includes(entity.handle);
         });
         console.log(`After visibleEntities filtering: ${beforeCount} → ${filteredEntities.length} entities`);
       }
 
+      // Apply all the existing filtering
       filteredEntities = removePreciseDuplicates(filteredEntities);
       filteredEntities = consolidateBoundaryLayers(filteredEntities);
       filteredEntities = mergeOverlappingPolylines(filteredEntities);
@@ -2405,7 +2408,6 @@ ${defs.join('\n')}
             const verts = e.vertices || []; if (verts.length < 2) return false;
             const isClosed = e.closed || e.flags === 1 || (verts.length > 2 && (verts[0].x === verts[verts.length - 1].x && verts[0].y === verts[verts.length - 1].y));
             if (!isClosed) {
-              // length check for open polylines
               let length = 0; for (let i = 0; i < verts.length - 1; i++) { const v1 = verts[i], v2 = verts[i + 1]; length += Math.hypot(v2.x - v1.x, v2.y - v1.y); }
               return length >= minLineLen;
             }
@@ -2417,24 +2419,132 @@ ${defs.join('\n')}
         }
       });
 
-      // if (config.flattenToSingleLayer) {
-      //   filteredEntities = filteredEntities.map(e => ({ ...e, layer: '0' }));
-      // }
-
       usedEntities = filteredEntities;
-      const modelContent = processEntities(filteredEntities, '*Model_Space', transformStack);
-      content.push(...modelContent);
+
+      // Group entities by layer and type for hierarchical structure
+      filteredEntities.forEach(entity => {
+        const layerName = entity.layer || '0';
+        const entityType = entity.type;
+
+        if (!layerGroups.has(layerName)) {
+          layerGroups.set(layerName, new Map());
+        }
+
+        if (!layerGroups.get(layerName).has(entityType)) {
+          layerGroups.get(layerName).set(entityType, []);
+        }
+
+        layerGroups.get(layerName).get(entityType).push(entity);
+      });
+
     } else {
       console.warn('No db.entities found or empty array');
     }
 
-    return { content, usedEntities };
+    return { layerGroups, usedEntities };
+  };
+
+  // Updated function to generate hierarchical SVG content
+  const generateHierarchicalSVGContent = () => {
+    const { layerGroups, usedEntities } = generateSVGContent();
+    const hierarchicalContent = [];
+
+    // Sort layers by importance/priority
+    const sortedLayers = Array.from(layerGroups.keys()).sort((a, b) => {
+      const priorities = {
+        '0': 0,
+        'WALL': 1, 'WALLS': 1,
+        'COLUMN': 2, 'COLUMNS': 2,
+        'DOOR': 3, 'DOORS': 3,
+        'WINDOW': 4, 'WINDOWS': 4,
+        'FURNITURE': 5,
+        'TEXT': 6,
+        'DIMENSION': 7
+      };
+
+      const getPriority = (layer) => {
+        const upper = layer.toUpperCase();
+        for (const [key, priority] of Object.entries(priorities)) {
+          if (upper.includes(key)) return priority;
+        }
+        return 999;
+      };
+
+      return getPriority(a) - getPriority(b);
+    });
+
+    // Generate hierarchical structure: Main Group > Layer Groups > Type Groups > Entities
+    for (const layerName of sortedLayers) {
+      const typeGroups = layerGroups.get(layerName);
+      const layerContent = [];
+
+      // Sort entity types within each layer
+      const sortedTypes = Array.from(typeGroups.keys()).sort((a, b) => {
+        const typeOrder = ['LINE', 'LWPOLYLINE', 'POLYLINE', 'POLYGON', 'CIRCLE', 'ARC', 'INSERT', 'TEXT', 'MTEXT'];
+        return typeOrder.indexOf(a) - typeOrder.indexOf(b);
+      });
+
+      for (const entityType of sortedTypes) {
+        const entities = typeGroups.get(entityType);
+        const typeContent = [];
+
+        // Process entities of this type
+        for (const entity of entities) {
+          if (entity.type === 'INSERT') {
+            const useElement = generateInsertUseElement(entity, `Layer_${layerName}`, transformStack);
+            if (useElement) {
+              typeContent.push(`    ${useElement}`);
+            }
+          } else {
+            const element = generateElement(entity, `Layer_${layerName}`, transformStack, highlightedEntityHandle);
+            if (element) {
+              typeContent.push(`    ${element}`);
+            }
+          }
+        }
+
+        // Flush aggregated paths for this type if enabled
+        if (config.aggregatePaths) {
+          const flushed = flushAggregatedPaths();
+          if (flushed.length > 0) {
+            typeContent.push(`    ${flushed.join('')}`);
+          }
+        }
+
+        // Create type group if there are entities
+        if (typeContent.length > 0) {
+          const typeGroupId = `${layerName}_${entityType}`;
+          const typeGroupClass = `type-group ${entityType.toLowerCase()}-group`;
+
+          layerContent.push(`  <g id="${escapeXml(typeGroupId)}" class="${typeGroupClass}" data-type="${entityType}">`);
+          layerContent.push(...typeContent);
+          layerContent.push(`  </g>`);
+        }
+      }
+
+      // Create layer group if there are type groups
+      if (layerContent.length > 0) {
+        const layerGroupId = `Layer_${layerName}`;
+        const layerGroupClass = `layer-group`;
+        const layerVisible = isLayerVisible(layerName) ? 'visible' : 'hidden';
+
+        hierarchicalContent.push(`<g id="${escapeXml(layerGroupId)}" class="${layerGroupClass}" data-layer="${escapeXml(layerName)}" data-visibility="${layerVisible}">`);
+        hierarchicalContent.push(...layerContent);
+        hierarchicalContent.push(`</g>`);
+      }
+    }
+
+    return { content: hierarchicalContent, usedEntities };
   };
 
   const blockDefs = generateBlockDefinitions();
-  const { content: svgElements, usedEntities } = generateSVGContent();
-  const svgContent = `<g id="Layer_1">${svgElements.join('\n')}</g>`;
+  // const { content: svgElements, usedEntities } = generateSVGContent();
+  const { content: hierarchicalElements, usedEntities } = generateHierarchicalSVGContent();
+  // const svgContent = `<g id="Layer_1">${svgElements.join('\n')}</g>`;
   // const svgContent = svgElements.join('\n');
+  const svgContent = `<g id="MainDrawing" class="main-drawing-group">
+${hierarchicalElements.join('\n')}
+</g>`;
 
   if (!bounds.valid || bounds.minX === Infinity || bounds.maxX === -Infinity) {
     console.error('CRITICAL: No valid bounds found after processing all entities!');
@@ -2522,6 +2632,31 @@ ${defs.join('\n')}
       font-size: 12px;
       font-family: monospace;
     }
+
+    /* Hierarchical group styling */
+    .main-drawing-group {
+      /* Main container for all drawing elements */
+    }
+
+    .layer-group {
+      /* Individual layer groups */
+    }
+
+    .layer-group[data-visibility="hidden"] {
+      opacity: 0.3;
+      pointer-events: none;
+    }
+
+    .type-group {
+      /* Groups for different entity types within layers */
+    }
+
+    .line-group { stroke: #2c3e50; }
+    .circle-group { stroke: #e74c3c; }
+    .polyline-group { stroke: #3498db; }
+    .polygon-group { stroke: #27ae60; }
+    .text-group { fill: #8e44ad; }
+    .insert-group { stroke: #f39c12; }
 
     .dwg-entity:hover {
       opacity: 0.7 !important;
