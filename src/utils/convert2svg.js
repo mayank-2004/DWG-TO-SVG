@@ -414,7 +414,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     const innerTranslateX = -paddedMinX;
     const innerTranslateY = -paddedMaxY;
 
-    const transform = `translate(${round(offsetX)}, ${round(offsetY)}) scale(${scale}, ${-scale}) translate(${round(innerTranslateX)}, ${round(innerTranslateY)})`;
+    const transform = `scale(${scale}, ${-scale}) translate(${round(innerTranslateX)}, ${round(innerTranslateY)})`;
 
     return { scale, offsetX, offsetY, innerTranslateX, innerTranslateY, targetW, targetH, transform };
   };

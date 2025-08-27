@@ -42,13 +42,8 @@ export default function App() {
       return null;
     }
 
-    // Convert handle to both string and number for comparison
     const handleStr = String(handle);
     const handleNum = parseInt(handle);
-
-    console.log(`Searching for handle ${handle} (string: "${handleStr}", number: ${handleNum}) in database`);
-
-    // First check main entities
     if (db.entities && Array.isArray(db.entities)) {
       console.log(`Searching in ${db.entities.length} main entities`);
       const entity = db.entities.find(e => e.handle === handleNum || e.handle === handleStr || String(e.handle) === handleStr);
@@ -57,8 +52,6 @@ export default function App() {
         return { entity, location: 'main', blockName: null };
       }
     }
-
-    // Check in block definitions
     if (db.tables?.BLOCK_RECORD?.entries) {
       console.log(`Searching in ${db.tables.BLOCK_RECORD.entries.length} blocks`);
       for (const block of db.tables.BLOCK_RECORD.entries) {
@@ -72,36 +65,15 @@ export default function App() {
         }
       }
     }
-
-    // Additional search in header/tables if entities might be there
-    // if (db.tables) {
-    //   console.log('Checking other tables...');
-    //   for (const [tableName, table] of Object.entries(db.tables)) {
-    //     if (table.entries && Array.isArray(table.entries)) {
-    //       for (const entry of table.entries) {
-    //         if (entry.handle === handleNum || entry.handle === handleStr || String(entry.handle) === handleStr) {
-    //           console.log(`Found entity in table "${tableName}"`);
-    //           return { entity: entry, location: 'table', blockName: tableName };
-    //         }
-    //       }
-    //     }
-    //   }
-    // }
-
-    console.log(`Entity with handle ${handle} not found anywhere`);
     return null;
   };
 
   const removeEntityByHandle = (handle, db) => {
     if (!db || !handle) return false;
-
-    // Convert handle to both string and number for comparison
     const handleStr = String(handle);
     const handleNum = parseInt(handle);
 
     let removed = false;
-
-    // Remove from main entities
     if (db.entities && Array.isArray(db.entities)) {
       const initialLength = db.entities.length;
       db.entities = db.entities.filter(e => e.handle !== handleNum && e.handle !== handleStr && String(e.handle) !== handleStr);
@@ -161,12 +133,7 @@ export default function App() {
       const dwg = lib.dwg_read_data(buf, Dwg_File_Type.DWG);
       const db = lib.convert(dwg);
       dbRef.current = db;
-      console.log("db ref.current set:", dbRef.current);
-
       console.log("Full database structure:", db);
-      console.log("Entities:", db.entities);
-      console.log("Tables:", db.tables);
-      console.log("BLOCK_RECORD entries:", db.tables?.BLOCK_RECORD?.entries);
 
       const layers = db.tables?.LAYER?.entries?.map(l => l.name) || [];
       setAllLayers(layers);
@@ -228,10 +195,6 @@ export default function App() {
       }
 
       lib.dwg_free(dwg);
-
-      // console.log('Converting to SVG with visible layers:', layers);
-      // const svgText = convertToSvg(db, [], layers, null, []);
-      console.log('Converting DWG to single-layer SVG');
       const svgText = convertToSvg(db, [], null, null, []);
 
       if (!svgText || svgText.includes('No data')) {
@@ -264,7 +227,6 @@ export default function App() {
   };
 
   function createDWGViewer(svgData) {
-    // Handle both old format (string) and new format (object)
     const svg = typeof svgData === 'string' ? svgData : svgData.svg;
     const dimensions = svgData.dimensions || {
       contentWidth: 'unknown',
@@ -285,17 +247,9 @@ export default function App() {
   }
 
   function processDWGFile(dwgData) {
-    // Call convertToSvg (this returns an object now)
     const svgData = convertToSvg(dwgData, [], null, null, [], { aggregateForExport: false });
-
-    // Create the viewer HTML
     const viewerHTML = createDWGViewer(svgData);
-
-    // Insert into your container
     document.getElementById('svg-container').innerHTML = viewerHTML;
-
-    // Optional: Log dimensions for debugging
-    console.log('DWG processed:', svgData.dimensions);
   }
 
   const handleSvgClick = (event) => {
@@ -309,23 +263,15 @@ export default function App() {
     while (target && !entityHandle && attempts < 100) {
       entityHandle = target.getAttribute('data-handle');
       console.log(`Checking element:`, target.tagName, ', handle:', entityHandle);
-
       if (!entityHandle) {
         target = target.parentElement;
       }
       attempts++;
     }
 
-    console.log('Found entity handle:', entityHandle);
-
     if (entityHandle && dbRef.current) {
-      // Use the helper function to find the entity
       const entityResult = findEntityByHandle(entityHandle, dbRef.current);
-
-      console.log('Entity search result:', entityResult);
-
       if (entityResult) {
-        // Calculate position relative to the viewport
         const dialogX = event.clientX;
         const dialogY = Math.max(50, event.clientY - 120);
 
@@ -341,33 +287,12 @@ export default function App() {
         setInlineDeletePosition({ x: dialogX, y: dialogY });
         setShowInlineDeleteDialog(true);
         setHighlightedEntity(entityHandle);
-
-        console.log('Showing inline delete dialog for:', entityHandle, 'in', entityResult.location);
-
-        // Hide any existing tooltip
         const tooltip = document.querySelector('.entity-tooltip');
         if (tooltip) {
           tooltip.remove();
         }
       } else {
         console.warn('Entity not found in database:', entityHandle);
-        console.log('Available entities in main:', dbRef.current.entities?.length || 0);
-        console.log('Available blocks:', dbRef.current.tables?.BLOCK_RECORD?.entries?.length || 0);
-
-        // Debug: Let's see what's actually in the database
-        if (dbRef.current.entities && dbRef.current.entities.length > 0) {
-          console.log('Sample main entities handles:', dbRef.current.entities.slice(0, 5).map(e => e.handle));
-        }
-
-        if (dbRef.current.tables?.BLOCK_RECORD?.entries) {
-          dbRef.current.tables.BLOCK_RECORD.entries.forEach(block => {
-            if (block.entities && block.entities.length > 0) {
-              console.log(`Block ${block.name} entities:`, block.entities.slice(0, 3).map(e => e.handle));
-            }
-          });
-        }
-
-        // Refresh SVG to ensure consistency
         const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities);
         setSvg(svgText);
       }
@@ -402,46 +327,28 @@ export default function App() {
 
   const handleConfirmInlineDelete = () => {
     if (inlineDeleteEntity && dbRef.current) {
-      console.log('Inline delete - Before deletion:', dbRef.current.entities.length, ' Entity info:', inlineDeleteEntity);
-
-      // Store the layer name before deletion for layer cleanup
       const deletedEntityLayer = inlineDeleteEntity.layer;
-
-      // Use the helper function to remove the entity
       const removed = removeEntityByHandle(inlineDeleteEntity.handle, dbRef.current);
 
       if (removed) {
-        console.log('Inline delete - Entity successfully removed');
-
-        // FORCE immediate SVG update
         const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities);
         setSvg(svgText);
-
-        // Check if the layer is now empty and remove it from layers if needed
         if (deletedEntityLayer) {
           const allEntities = getAllEntities();
           const entitiesInLayer = allEntities.filter(e => e.layer === deletedEntityLayer);
 
           if (entitiesInLayer.length === 0) {
-            // Remove empty layer from allLayers and visibleLayers
             const updatedAllLayers = allLayers.filter(l => l !== deletedEntityLayer);
             const updatedVisibleLayers = visibleLayers.filter(l => l !== deletedEntityLayer);
 
             setAllLayers(updatedAllLayers);
             setVisibleLayers(updatedVisibleLayers);
-
-            console.log(`Layer "${deletedEntityLayer}" removed as it has no entities left`);
-
-            // If we're viewing entities dialog for this layer, close it
             if (selectedLayer === deletedEntityLayer) {
-              // setShowEntitiesDialog(false);
               handleCloseEntitiesDialog()
               setSelectedLayer(null);
             }
           }
         }
-
-        // Update file info
         if (fileInfo) {
           setFileInfo({
             ...fileInfo,
@@ -449,11 +356,9 @@ export default function App() {
           });
         }
 
-        console.log(`Inline delete completed: ${inlineDeleteEntity.type} (handle: ${inlineDeleteEntity.handle}) from ${inlineDeleteEntity.location}`);
       } else {
         console.warn('Failed to remove entity:', inlineDeleteEntity.handle);
       }
-      // Close dialog and reset state
       setShowInlineDeleteDialog(false);
       setInlineDeleteEntity(null);
       setHighlightedEntity(null);
@@ -495,20 +400,10 @@ export default function App() {
 
   const confirmDeleteEntity = () => {
     if (!pendingDeleteHandle || !dbRef.current) return;
-
-    console.log('Confirming deletion of entity:', pendingDeleteHandle);
-    console.log('Current database structure:', {
-      mainEntities: dbRef.current.entities?.length || 0,
-      blocks: dbRef.current.tables?.BLOCK_RECORD?.entries?.length || 0
-    });
-
-    // Use the helper function to find the entity first
     const entityResult = findEntityByHandle(pendingDeleteHandle, dbRef.current);
-    console.log('Entity found:', entityResult);
 
     if (!entityResult) {
       console.warn('Entity not found in database:', pendingDeleteHandle);
-      // Close dialogs and return
       setShowDeleteConfirm(false);
       setSelectedEntityInfo(null);
       setHighlightedEntity(null);
@@ -516,10 +411,7 @@ export default function App() {
       return;
     }
 
-    // Store the layer name before deletion for layer cleanup
     const deletedEntityLayer = entityResult.entity.layer;
-
-    // Use the helper function to remove the entity
     const removed = removeEntityByHandle(pendingDeleteHandle, dbRef.current);
 
     if (removed) {
@@ -529,36 +421,24 @@ export default function App() {
         layer: entityResult.entity.layer,
         blockName: entityResult.blockName
       });
-
-      // Force re-render SVG immediately
       const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities);
       setSvg(svgText);
-
-      // Check if the layer is now empty and remove it from layers if needed
       if (deletedEntityLayer) {
         const allEntities = getAllEntities();
         const entitiesInLayer = allEntities.filter(e => e.layer === deletedEntityLayer);
 
         if (entitiesInLayer.length === 0) {
-          // Remove empty layer from allLayers and visibleLayers
           const updatedAllLayers = allLayers.filter(l => l !== deletedEntityLayer);
           const updatedVisibleLayers = visibleLayers.filter(l => l !== deletedEntityLayer);
 
           setAllLayers(updatedAllLayers);
           setVisibleLayers(updatedVisibleLayers);
-
-          console.log(`Layer "${deletedEntityLayer}" removed as it has no entities left`);
-
-          // If we're viewing entities dialog for this layer, close it
           if (selectedLayer === deletedEntityLayer) {
-            // setShowEntitiesDialog(false);
             handleCloseEntitiesDialog();
             setSelectedLayer(null);
           }
         }
       }
-
-      // Update file info if needed
       if (fileInfo) {
         const updatedFileInfo = {
           ...fileInfo,
@@ -566,12 +446,10 @@ export default function App() {
         };
         setFileInfo(updatedFileInfo);
       }
-      console.log(`Entity deleted: ${selectedEntityInfo?.type} (handle: ${pendingDeleteHandle})`);
     } else {
       console.warn('Failed to delete entity:', pendingDeleteHandle);
     }
 
-    // Close dialogs and reset state
     setShowDeleteConfirm(false);
     setSelectedEntityInfo(null);
     setHighlightedEntity(null);
@@ -637,7 +515,6 @@ export default function App() {
     setSvg('');
   };
 
-  // Add these handler functions
   const handleEntityToggle = (entityHandle) => {
     let updated;
     if (visibleEntities.includes(entityHandle)) {
@@ -678,10 +555,8 @@ export default function App() {
 
   const createHighlightOverlay = (entityHandle) => {
     if (!entityHandle || !dbRef.current) return null;
-
     const entity = dbRef.current.entities.find(e => e.handle === entityHandle);
     if (!entity) return null;
-
     let bounds = null;
 
     switch (entity.type) {
@@ -735,7 +610,6 @@ export default function App() {
           };
         }
     }
-
     return bounds;
   };
 
@@ -744,9 +618,7 @@ export default function App() {
     if (existingTooltip) {
       existingTooltip.remove();
     }
-
     if (!entityHandle || !dbRef.current) return;
-
     const entity = dbRef.current.entities.find(e => e.handle === entityHandle);
     if (!entity) return;
 
@@ -761,9 +633,7 @@ export default function App() {
 
     tooltip.style.left = `${x + 10}px`;
     tooltip.style.top = `${y - 10}px`;
-
     document.body.appendChild(tooltip);
-
     setTimeout(() => {
       if (tooltip.parentNode) {
         tooltip.remove();
@@ -781,8 +651,6 @@ export default function App() {
         allEntities.push({ ...entity, location: 'main', blockName: null });
       });
     }
-
-    // Add block entities
     if (dbRef.current.tables?.BLOCK_RECORD?.entries) {
       dbRef.current.tables.BLOCK_RECORD.entries.forEach(block => {
         if (block.entities && Array.isArray(block.entities)) {
@@ -800,8 +668,6 @@ export default function App() {
     if (!dbRef.current) return [];
 
     const entitiesInArea = [];
-
-    // Check main entities
     if (dbRef.current.entities && Array.isArray(dbRef.current.entities)) {
       dbRef.current.entities.forEach(entity => {
         if (isEntityInArea(entity, minX, minY, maxX, maxY)) {
@@ -814,7 +680,6 @@ export default function App() {
       });
     }
 
-    // Check block entities
     if (dbRef.current.tables?.BLOCK_RECORD?.entries) {
       dbRef.current.tables.BLOCK_RECORD.entries.forEach(block => {
         if (block.entities && Array.isArray(block.entities)) {
@@ -881,7 +746,6 @@ export default function App() {
         }
         break;
       default:
-        // For other entity types, check common position properties
         const pos = entity.position || entity.insertionPoint || entity.center;
         if (pos) {
           return checkPoint(pos.x, pos.y);
@@ -894,16 +758,10 @@ export default function App() {
   const svgToWorldCoordinates = (svgX, svgY, svgElement) => {
     const rect = svgElement.getBoundingClientRect();
     const viewBox = svgElement.viewBox.baseVal;
-
-    // Calculate relative position within SVG element
     const relX = (svgX - rect.left) / rect.width;
     const relY = (svgY - rect.top) / rect.height;
-
-    // Convert to world coordinates using viewBox
     const worldX = viewBox.x + (relX * viewBox.width);
     const worldY = viewBox.y + (relY * viewBox.height);
-
-    // Account for the scale(1,-1) transform
     return {
       x: worldX,
       y: -worldY
@@ -916,24 +774,20 @@ export default function App() {
       console.log('SVG container:', svgContainer);
 
       if (svgContainer && svg && !showEditor) {
-        // Remove existing listeners first
         svgContainer.removeEventListener('click', handleSvgClick);
         svgContainer.removeEventListener('mouseover', handleSvgMouseOver);
         svgContainer.removeEventListener('mouseout', handleSvgMouseOut);
 
-        // Only attach entity interaction listeners if NOT in selection mode
         if (!selectionMode) {
           const clickableEntities = svgContainer.querySelectorAll('[data-handle]');
           console.log('Clickable entities found:', clickableEntities.length);
 
           if (clickableEntities.length > 0) {
-            // Add new listeners only if entities are found
             svgContainer.addEventListener('click', handleSvgClick);
             svgContainer.addEventListener('mouseover', handleSvgMouseOver);
             svgContainer.addEventListener('mouseout', handleSvgMouseOut);
             console.log('Event listeners attached successfully to', clickableEntities.length, 'entities');
           } else {
-            // If no entities found, try again after a longer delay
             console.log('No clickable entities found, retrying in 2 seconds...');
             setTimeout(attachListeners, 4000);
           }
@@ -965,19 +819,15 @@ export default function App() {
         if (clickableEntities && clickableEntities.length > 0) {
           console.log('Re-attaching listeners after SVG update to', clickableEntities.length, 'entities');
 
-          // Remove existing listeners
           svgContainer.removeEventListener('click', handleSvgClick);
           svgContainer.removeEventListener('mouseover', handleSvgMouseOver);
           svgContainer.removeEventListener('mouseout', handleSvgMouseOut);
 
-          // Add new listeners
           svgContainer.addEventListener('click', handleSvgClick);
           svgContainer.addEventListener('mouseover', handleSvgMouseOver);
           svgContainer.addEventListener('mouseout', handleSvgMouseOut);
         }
       };
-
-      // Use requestAnimationFrame to ensure DOM is fully rendered
       requestAnimationFrame(() => {
         setTimeout(checkAndAttach, 100);
       });
@@ -997,7 +847,6 @@ export default function App() {
     };
   }, [showInlineDeleteDialog]);
 
-  // Add this useEffect to initialize visible entities when entities dialog opens
   useEffect(() => {
     if (showEntitiesDialog && selectedLayer) {
       const allEntities = getAllEntities();
@@ -1012,7 +861,6 @@ export default function App() {
       const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, []);
       setSvg(svgText);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showEntitiesDialog]);
 
   const handleSelectionMouseDown = (event) => {
@@ -1076,9 +924,7 @@ export default function App() {
 
     try {
       if (!dbRef.current) throw new Error('No drawing loaded');
-      // Force an export-optimized render: aggregated paths, minified output
-      const optimizedSvg = convertToSvg(dbRef.current, [], null, null, [], { aggregateForExport: true, maxBytes: 2_000_000, decimalPlaces: 1, simplifyTolerance: 0.75 });
-
+      const optimizedSvg = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities, { aggregateForExport: true, maxBytes: 2_000_000, decimalPlaces: 1, simplifyTolerance: 0.75 });
       const blob = new Blob([optimizedSvg], { type: "image/svg+xml" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -1113,7 +959,6 @@ export default function App() {
 
   const exportRawSvg = () => {
     if (!svg) return;
-
     const blob = new Blob([svg], { type: "text/plain" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -1379,7 +1224,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* Dialog Actions */}
               <div style={{
                 marginTop: '1rem',
                 marginLeft: '1rem',
@@ -1447,201 +1291,6 @@ export default function App() {
             </div>
           </div>
         )}
-
-        {/* {showEntitiesDialog && (
-          <div style={{
-            position: 'fixed',
-            top: 0,
-            right: 0,
-            height: '100vh',
-            width: '420px',
-            background: 'white',
-            zIndex: 10000,
-            boxShadow: '-4px 0 20px rgba(0,0,0,0.15)',
-            borderLeft: '1px solid #eee',
-            overflowY: 'auto',
-            transition: 'right 0.2s'
-          }}>
-            <div style={{
-              background: 'white',
-              padding: '2rem',
-              borderRadius: '8px',
-              minWidth: '360px',
-              maxHeight: '100vh',
-              overflow: 'auto',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
-            }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '1rem',
-                borderBottom: '1px solid #eee',
-                paddingBottom: '1rem'
-              }}>
-                <h3 style={{ margin: 0, color: 'black' }}>
-                  Entities in Layer: <span style={{ color: '#007bff' }}>{selectedLayer}</span>
-                </h3>
-                <button
-                  style={{
-                    padding: '6px 14px',
-                    backgroundColor: '#6c757d',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => setShowEntitiesDialog(false)}
-                >
-                  Close
-                </button>
-              </div>
-              <div style={{ maxHeight: '300px', overflow: 'auto' }}>
-                {(() => {
-                  const allEntities = getAllEntities();
-                  console.log('All entities:', allEntities);
-                  const layerEntities = allEntities.filter(e => e.layer === selectedLayer);
-                  console.log('Layer entities:', layerEntities);
-
-                  return layerEntities.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '20px' }}>
-                      <p style={{ color: '#666', fontStyle: 'italic' }}>No entities found in this layer.</p>
-                      <p style={{ color: '#999', fontSize: '0.8em' }}>This layer may have been emptied by deletions.</p>
-                      <button
-                        style={{
-                          padding: '8px 16px',
-                          backgroundColor: '#28a745',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          marginTop: '10px'
-                        }}
-                        onClick={() => setShowEntitiesDialog(false)}
-                      >
-                        Close Dialog
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <div style={{
-                        marginBottom: '10px',
-                        padding: '8px',
-                        backgroundColor: '#e8f5e8',
-                        borderRadius: '4px',
-                        fontSize: '0.9em',
-                        color: '#333'
-                      }}>
-                        <strong>{layerEntities.length}</strong> entities in this layer
-                      </div>
-                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                        {layerEntities.map(e => (
-                          <li key={e.handle} style={{
-                            marginBottom: '8px',
-                            padding: '8px',
-                            backgroundColor: highlightedEntity === e.handle ? '#ffebee' : '#f8f8f8',
-                            borderRadius: '6px',
-                            border: highlightedEntity === e.handle ? '3px solid #dc3545' : '1px solid #ddd',
-                            display: 'flex',
-                            alignItems: 'center',
-                            cursor: 'pointer',
-                            transition: 'all 0.3s ease',
-                            transform: highlightedEntity === e.handle ? 'scale(1.01)' : 'scale(1)',
-                            boxShadow: highlightedEntity === e.handle ? '0 4px 12px rgba(220, 53, 69, 0.3)' : 'none'
-                          }}
-                            onMouseEnter={() => {
-                              setHighlightedEntity(e.handle);
-                              if (dbRef.current) {
-                                const svgText = convertToSvg(dbRef.current, [], visibleLayers, e.handle);
-                                setSvg(svgText);
-                              }
-                            }}
-                            onMouseLeave={() => {
-                              setHighlightedEntity(null);
-                              if (dbRef.current) {
-                                const svgText = convertToSvg(dbRef.current, [], visibleLayers, null);
-                                setSvg(svgText);
-                              }
-                            }}
-                          >
-                            {highlightedEntity === e.handle && (
-                              <div style={{
-                                width: '8px',
-                                height: '8px',
-                                backgroundColor: '#dc3545',
-                                borderRadius: '50%',
-                                marginRight: '8px',
-                                animation: 'pulse 1s infinite'
-                              }} />
-                            )}
-                            <span style={{ flex: 1, color: 'black', fontWeight: highlightedEntity === e.handle ? 'bold' : 'normal' }}>
-                              <strong style={{ color: highlightedEntity === e.handle ? '#dc3545' : 'black' }}>{e.type}</strong> (handle: {e.handle})
-                              {e.layer && <span style={{ color: highlightedEntity === e.handle ? '#dc3545' : '#666', fontSize: '0.8em' }}> Layer: {e.layer}</span>}
-                              <span style={{ color: '#999', fontSize: '0.7em' }}> [{e.location}]</span>
-                            </span>
-                            {highlightedEntity === e.handle && (
-                              <span style={{
-                                marginLeft: '8px',
-                                padding: '2px 6px',
-                                backgroundColor: '#dc3545',
-                                color: 'white',
-                                borderRadius: '3px',
-                                fontSize: '0.7em',
-                                fontWeight: 'bold'
-                              }}>
-                                HIGHLIGHTED
-                              </span>
-                            )}
-                            <button
-                              style={{
-                                marginLeft: '8px',
-                                padding: '6px 12px',
-                                backgroundColor: highlightedEntity === e.handle ? '#0056b3' : '#007bff',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '3px',
-                                cursor: 'pointer',
-                                fontSize: '0.8em',
-                                fontWeight: highlightedEntity === e.handle ? 'bold' : 'normal'
-                              }}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setHighlightedEntity(e.handle);
-                              }}
-                              title="Highlight this entity"
-                            >
-                              {highlightedEntity === e.handle ? 'Viewing' : 'Highlight'}
-                            </button>
-                            <button
-                              style={{
-                                marginLeft: '8px',
-                                padding: '6px 12px',
-                                backgroundColor: '#dc3545',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '3px',
-                                cursor: 'pointer',
-                                fontSize: '0.8em',
-                                fontWeight: 'bold'
-                              }}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleDeleteEntity(e.handle, { source: 'entity-dialog' });
-                              }}
-                              title="Delete this entity"
-                            >
-                              Delete
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-          </div>
-        )} */}
         {showEntitiesDialog && (
           <div style={{
             position: 'fixed',
@@ -1707,7 +1356,6 @@ export default function App() {
                           cursor: 'pointer',
                           marginTop: '10px'
                         }}
-                        // onClick={() => setShowEntitiesDialog(false)}
                         onClick={() => handleCloseEntitiesDialog()}
                       >
                         Close Dialog
@@ -1850,7 +1498,6 @@ export default function App() {
                 })()}
               </div>
 
-              {/* Dialog Actions */}
               <div style={{
                 marginTop: '1rem',
                 paddingTop: '1rem',
@@ -1895,7 +1542,6 @@ export default function App() {
                     borderRadius: '4px',
                     cursor: 'pointer'
                   }}
-                  // onClick={() => setShowEntitiesDialog(false)}
                   onClick={() => handleCloseEntitiesDialog()}
                 >
                   Close

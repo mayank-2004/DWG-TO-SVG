@@ -133,20 +133,6 @@ const SVGElement = ({ element, isSelected, onClick, onMove, isSelecting }) => {
                     fillRule="evenodd"
                 />
             );
-            // case 'mtext':
-            return (
-                <text
-                    {...commonProps}
-                    x={attributes.x || 0}
-                    y={attributes.y || 0}
-                    fontSize={attributes['fontSize'] || attributes.fontSize || 16}
-                    fill={attributes.fill || 'black'}
-                    fontFamily={attributes['font-family'] || 'Arial, sans-serif'}
-                >
-                    {attributes.textContent || element.textContent || ''}
-                </text>
-            );
-
         case 'point':
             return (
                 <circle
