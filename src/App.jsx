@@ -32,6 +32,8 @@ export default function App() {
   const [showSelectionDialog, setShowSelectionDialog] = useState(false);
   const [selectedAreaEntities, setSelectedAreaEntities] = useState([]);
   const [visibleEntities, setVisibleEntities] = useState([]);
+  const [svgViewBox, setSvgViewBox] = useState(null);
+  const [originalViewBox, setOriginalViewBox] = useState(null);
 
   const dbRef = useRef(null);
   const svgContainerRef = useRef(null);
@@ -83,7 +85,6 @@ export default function App() {
       }
     }
 
-    // Remove from block definitions
     if (db.tables?.BLOCK_RECORD?.entries) {
       for (const block of db.tables.BLOCK_RECORD.entries) {
         if (block.entities && Array.isArray(block.entities)) {
@@ -110,8 +111,7 @@ export default function App() {
     setSelectedLayer(null);
     setVisibleEntities([]);
     if (dbRef.current) {
-      // const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, []); 
-      const svgText = convertToSvg(dbRef.current, [], null, null, [], { aggregateForExport: false }); // render all entities in a single layer
+      const svgText = convertToSvg(dbRef.current, [], null, null, [], { aggregateForExport: false });
       setSvg(svgText);
     }
   };
@@ -195,7 +195,7 @@ export default function App() {
       }
 
       lib.dwg_free(dwg);
-      const svgText = convertToSvg(db, [], null, null, []);
+      const svgText = convertToSvg(db, [], null, null, [], { aggregateForExport: false });
 
       if (!svgText || svgText.includes('No data')) {
         throw new Error('Failed to convert DWG content to SVG. The file may contain unsupported entity types.');
@@ -293,7 +293,7 @@ export default function App() {
         }
       } else {
         console.warn('Entity not found in database:', entityHandle);
-        const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities);
+        const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities, { aggregateForExport: false });
         setSvg(svgText);
       }
     } else {
@@ -331,7 +331,7 @@ export default function App() {
       const removed = removeEntityByHandle(inlineDeleteEntity.handle, dbRef.current);
 
       if (removed) {
-        const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities);
+        const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities, { aggregateForExport: false });
         setSvg(svgText);
         if (deletedEntityLayer) {
           const allEntities = getAllEntities();
@@ -421,7 +421,7 @@ export default function App() {
         layer: entityResult.entity.layer,
         blockName: entityResult.blockName
       });
-      const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities);
+      const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities, { aggregateForExport: false });
       setSvg(svgText);
       if (deletedEntityLayer) {
         const allEntities = getAllEntities();
@@ -456,6 +456,84 @@ export default function App() {
     setPendingDeleteHandle(null);
   };
 
+  // Add this function to calculate and apply zoom to selection:
+  const zoomToSelection = (selectionBox, svgElement) => {
+  if (!selectionBox || !svgElement) return;
+
+  const containerRect = svgContainerRef.current.getBoundingClientRect();
+  
+  // Store original viewBox if not already stored
+  if (!originalViewBox) {
+    const viewBox = svgElement.viewBox.baseVal;
+    setOriginalViewBox({
+      x: viewBox.x,
+      y: viewBox.y,
+      width: viewBox.width,
+      height: viewBox.height
+    });
+  }
+
+  // Calculate selection bounds in container coordinates
+  const selectionWidth = Math.abs(selectionBox.endX - selectionBox.startX);
+  const selectionHeight = Math.abs(selectionBox.endY - selectionBox.startY);
+  const selectionLeft = Math.min(selectionBox.startX, selectionBox.endX);
+  const selectionTop = Math.min(selectionBox.startY, selectionBox.endY);
+
+  // Get current viewBox
+  const currentViewBox = svgElement.viewBox.baseVal;
+  
+  // Calculate the ratio of selection to container
+  const containerWidth = containerRect.width / zoom; // Account for current zoom
+  const containerHeight = containerRect.height / zoom;
+  
+  // Calculate world coordinates for the selection
+  const scaleX = currentViewBox.width / containerWidth;
+  const scaleY = currentViewBox.height / containerHeight;
+  
+  const worldX = currentViewBox.x + (selectionLeft * scaleX);
+  const worldY = currentViewBox.y + (selectionTop * scaleY);
+  const worldWidth = selectionWidth * scaleX;
+  const worldHeight = selectionHeight * scaleY;
+
+  // Add padding (5% on each side)
+  const padding = 0.05;
+  const paddedWidth = worldWidth * (1 + 2 * padding);
+  const paddedHeight = worldHeight * (1 + 2 * padding);
+  const paddedX = worldX - (worldWidth * padding);
+  const paddedY = worldY - (worldHeight * padding);
+
+  // Create new viewBox
+  const newViewBox = {
+    x: paddedX,
+    y: paddedY,
+    width: paddedWidth,
+    height: paddedHeight
+  };
+
+  setSvgViewBox(newViewBox);
+  
+  // Apply the viewBox to the SVG element
+  svgElement.setAttribute('viewBox', `${paddedX} ${paddedY} ${paddedWidth} ${paddedHeight}`);
+  
+  console.log('Zooming to selection:', newViewBox);
+};  
+
+  // Add this function to reset zoom:
+  const resetZoomToOriginal = () => {
+  if (originalViewBox && svgContainerRef.current) {
+    setSvgViewBox(originalViewBox);
+    
+    // Find and update the SVG element
+    const svgElement = svgContainerRef.current.querySelector('svg');
+    if (svgElement) {
+      svgElement.setAttribute('viewBox', 
+        `${originalViewBox.x} ${originalViewBox.y} ${originalViewBox.width} ${originalViewBox.height}`
+      );
+      console.log('Reset to original viewBox:', originalViewBox);
+    }
+  }
+};
+
   const handleLayerToggle = (layerName) => {
     let updated;
     if (visibleLayers.includes(layerName)) {
@@ -469,7 +547,7 @@ export default function App() {
 
     if (dbRef.current) {
       console.log('Re-rendering SVG with visible layers:', updated);
-      const svgText = convertToSvg(dbRef.current, [], updated, null, visibleEntities);
+      const svgText = convertToSvg(dbRef.current, [], updated, null, visibleEntities, { aggregateForExport: false });
       setSvg(svgText);
     }
   };
@@ -480,7 +558,7 @@ export default function App() {
   const handleSelectAllLayers = () => {
     setVisibleLayers([...allLayers]);
     if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], allLayers, null, visibleEntities);
+      const svgText = convertToSvg(dbRef.current, [], allLayers, null, visibleEntities, { aggregateForExport: false });
       setSvg(svgText);
     }
   };
@@ -488,7 +566,7 @@ export default function App() {
   const handleDeselectAllLayers = () => {
     setVisibleLayers([]);
     if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], [], null, visibleEntities);
+      const svgText = convertToSvg(dbRef.current, [], [], null, visibleEntities, { aggregateForExport: false });
       setSvg(svgText);
     }
   };
@@ -504,7 +582,7 @@ export default function App() {
     setVisibleLayers(updatedVisibleLayers);
 
     if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], updatedVisibleLayers, null, visibleEntities);
+      const svgText = convertToSvg(dbRef.current, [], updatedVisibleLayers, null, visibleEntities, { aggregateForExport: false });
       setSvg(svgText);
     }
   };
@@ -528,7 +606,7 @@ export default function App() {
 
     if (dbRef.current) {
       console.log('Re-rendering SVG with visible entities:', updated);
-      const svgText = convertToSvg(dbRef.current, [], visibleLayers, highlightedEntity, updated);
+      const svgText = convertToSvg(dbRef.current, [], visibleLayers, highlightedEntity, updated, { aggregateForExport: false });
       setSvg(svgText);
     }
   };
@@ -540,7 +618,7 @@ export default function App() {
     setVisibleEntities(allEntityHandles);
 
     if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], visibleLayers, highlightedEntity, allEntityHandles);
+      const svgText = convertToSvg(dbRef.current, [], visibleLayers, highlightedEntity, allEntityHandles, { aggregateForExport: false });
       setSvg(svgText);
     }
   };
@@ -548,7 +626,7 @@ export default function App() {
   const handleDeselectAllEntities = () => {
     setVisibleEntities([]);
     if (dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], visibleLayers, highlightedEntity, visibleEntities);
+      const svgText = convertToSvg(dbRef.current, [], visibleLayers, highlightedEntity, visibleEntities, { aggregateForExport: false });
       setSvg(svgText);
     }
   };
@@ -645,7 +723,6 @@ export default function App() {
     if (!dbRef.current) return [];
 
     const allEntities = [];
-    // Add main entities
     if (dbRef.current.entities && Array.isArray(dbRef.current.entities)) {
       dbRef.current.entities.forEach(entity => {
         allEntities.push({ ...entity, location: 'main', blockName: null });
@@ -796,8 +873,7 @@ export default function App() {
     };
 
     if (svg && !showEditor) {
-      const timeout = setTimeout(attachListeners, 4000);
-
+      const timeout = setTimeout(attachListeners, 2000);
       return () => {
         clearTimeout(timeout);
         const svgContainer = svgContainerRef.current;
@@ -858,10 +934,26 @@ export default function App() {
 
   useEffect(() => {
     if (!showEntitiesDialog && dbRef.current) {
-      const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, []);
+      const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, [], { aggregateForExport: false });
       setSvg(svgText);
     }
   }, [showEntitiesDialog]);
+
+  // Add this effect to store original viewBox when SVG first loads:
+  useEffect(() => {
+  if (svg && svgContainerRef.current && !originalViewBox) {
+    const svgElement = svgContainerRef.current.querySelector('svg');
+    if (svgElement && svgElement.viewBox.baseVal) {
+      const viewBox = svgElement.viewBox.baseVal;
+      setOriginalViewBox({
+        x: viewBox.x,
+        y: viewBox.y,
+        width: viewBox.width,
+        height: viewBox.height
+      });
+    }
+  }
+}, [svg]);
 
   const handleSelectionMouseDown = (event) => {
     if (!selectionMode) return;
@@ -869,55 +961,88 @@ export default function App() {
     event.preventDefault();
     event.stopPropagation();
 
-    const svgElement = event.currentTarget.querySelector('svg');
-    if (!svgElement) return;
-
-    const worldCoords = svgToWorldCoordinates(event.clientX, event.clientY, svgElement);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const startX = event.clientX - rect.left;
+    const startY = event.clientY - rect.top;
 
     setIsDragging(true);
-    setDragStart(worldCoords);
-    setSelectionBox(null);
+    setSelectionBox({
+      startX,
+      startY,
+      endX: startX,
+      endY: startY
+    });
   };
 
   const handleSelectionMouseMove = (event) => {
-    if (!selectionMode || !isDragging) return;
+    if (!selectionMode || !isDragging || !selectionBox) return;
 
     event.preventDefault();
 
-    const svgElement = event.currentTarget.querySelector('svg');
-    if (!svgElement) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const endX = event.clientX - rect.left;
+    const endY = event.clientY - rect.top;
 
-    const worldCoords = svgToWorldCoordinates(event.clientX, event.clientY, svgElement);
-
-    const minX = Math.min(dragStart.x, worldCoords.x);
-    const minY = Math.min(dragStart.y, worldCoords.y);
-    const maxX = Math.max(dragStart.x, worldCoords.x);
-    const maxY = Math.max(dragStart.y, worldCoords.y);
-
-    setSelectionBox({ minX, minY, maxX, maxY });
+    setSelectionBox(prev => ({
+      ...prev,
+      endX,
+      endY
+    }));
   };
 
   const handleSelectionMouseUp = (event) => {
-    if (!selectionMode || !isDragging) return;
+  if (!selectionMode || !isDragging || !selectionBox) return;
 
-    event.preventDefault();
+  event.preventDefault();
+  setIsDragging(false);
 
-    setIsDragging(false);
+  const svgElement = event.currentTarget.querySelector('svg');
+  if (svgElement && selectionBox) {
+    // Get entities in the selected area using world coordinates
+    const containerRect = event.currentTarget.getBoundingClientRect();
+    const currentViewBox = svgElement.viewBox.baseVal;
+    
+    const containerWidth = containerRect.width / zoom;
+    const containerHeight = containerRect.height / zoom;
+    
+    const scaleX = currentViewBox.width / containerWidth;
+    const scaleY = currentViewBox.height / containerHeight;
+    
+    const selectionLeft = Math.min(selectionBox.startX, selectionBox.endX);
+    const selectionTop = Math.min(selectionBox.startY, selectionBox.endY);
+    const selectionRight = Math.max(selectionBox.startX, selectionBox.endX);
+    const selectionBottom = Math.max(selectionBox.startY, selectionBox.endY);
+    
+    const worldMinX = currentViewBox.x + (selectionLeft * scaleX);
+    const worldMinY = currentViewBox.y + (selectionTop * scaleY);
+    const worldMaxX = currentViewBox.x + (selectionRight * scaleX);
+    const worldMaxY = currentViewBox.y + (selectionBottom * scaleY);
 
-    if (selectionBox) {
-      const entitiesInArea = getEntitiesInArea(
-        selectionBox.minX,
-        selectionBox.minY,
-        selectionBox.maxX,
-        selectionBox.maxY
-      );
+    const entitiesInArea = getEntitiesInArea(worldMinX, -worldMaxY, worldMaxX, -worldMinY);
+    setSelectedAreaEntities(entitiesInArea);
+    setShowSelectionDialog(true);
+    
+    // Zoom to the selected area
+    setTimeout(() => {
+      zoomToSelection(selectionBox, svgElement);
+    }, 100);
+  }
+};
 
-      setSelectedAreaEntities(entitiesInArea);
-      setShowSelectionDialog(true);
-    }
-
+  // Update the selection mode toggle button handler:
+  const toggleSelectionMode = () => {
+  const newSelectionMode = !selectionMode;
+  setSelectionMode(newSelectionMode);
+  
+  // Clear selection box and reset zoom when exiting selection mode
+  if (!newSelectionMode) {
     setSelectionBox(null);
-  };
+    setIsDragging(false);
+    setShowSelectionDialog(false);
+    resetZoomToOriginal();
+    setOriginalViewBox(null); // Reset for next time
+  }
+};
 
   const download = () => {
     if (!svg) return;
@@ -1393,14 +1518,14 @@ export default function App() {
                             onMouseEnter={() => {
                               setHighlightedEntity(e.handle);
                               if (dbRef.current) {
-                                const svgText = convertToSvg(dbRef.current, [], visibleLayers, e.handle, visibleEntities);
+                                const svgText = convertToSvg(dbRef.current, [], visibleLayers, e.handle, visibleEntities, { aggregateForExport: false });
                                 setSvg(svgText);
                               }
                             }}
                             onMouseLeave={() => {
                               setHighlightedEntity(null);
                               if (dbRef.current) {
-                                const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities);
+                                const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities, { aggregateForExport: false });
                                 setSvg(svgText);
                               }
                             }}
@@ -1803,11 +1928,7 @@ export default function App() {
         {svg && !isLoading && (
           <div style={{ marginTop: '15px', display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'center' }}>
             <button
-              onClick={() => {
-                setSelectionMode(!selectionMode);
-                setSelectionBox(null);
-                setIsDragging(false);
-              }}
+              onClick={toggleSelectionMode}
               style={{
                 padding: '8px 16px',
                 backgroundColor: selectionMode ? '#28a745' : '#007bff',
@@ -1820,10 +1941,26 @@ export default function App() {
             >
               {selectionMode ? 'Exit Selection Mode' : 'Area Selection Mode'}
             </button>
-            {selectionMode && (
-              <span style={{ fontSize: '0.9em', color: '#666' }}>
-                Click and drag to select an area
-              </span>
+            {selectionMode && originalViewBox && (
+              <>
+                <span style={{ fontSize: '0.9em', color: '#666' }}>
+                  Click and drag to select an area
+                </span>
+                <button
+                  onClick={resetZoomToOriginal}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#ffc107',
+                    color: 'black',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    marginLeft: '10px'
+                  }}
+                >
+                  Reset Zoom
+                </button>
+              </>
             )}
           </div>
         )}
@@ -1909,7 +2046,7 @@ export default function App() {
                     dangerouslySetInnerHTML={{ __html: svg }}
                   />
 
-                  {selectionMode && selectionBox && (
+                  {/* {selectionMode && selectionBox && (
                     <div
                       style={{
                         position: 'absolute',
@@ -1929,6 +2066,23 @@ export default function App() {
                         }}
                       />
                     </div>
+                  )} */}
+                  {selectionMode && selectionBox && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: `${Math.min(selectionBox.startX, selectionBox.endX)}px`,
+                        top: `${Math.min(selectionBox.startY, selectionBox.endY)}px`,
+                        width: `${Math.abs(selectionBox.endX - selectionBox.startX)}px`,
+                        height: `${Math.abs(selectionBox.endY - selectionBox.startY)}px`,
+                        border: '2px dashed #007bff',
+                        backgroundColor: 'rgba(0, 123, 255, 0.15)',
+                        pointerEvents: 'none',
+                        zIndex: 1000,
+                        borderRadius: '2px',
+                        boxShadow: '0 0 10px rgba(0, 123, 255, 0.3)'
+                      }}
+                    />
                   )}
 
                   {highlightedEntity && (() => {
@@ -1980,21 +2134,22 @@ export default function App() {
                 {showSelectionDialog && (
                   <div style={{
                     position: 'fixed',
-                    top: 0, left: 0, width: '100vw', height: '100vh',
-                    background: 'rgba(0,0,0,0.5)',
+                    top: 0,
+                    right: 0,
+                    height: '100vh',
+                    width: '350px',
+                    background: 'white',
                     zIndex: 20000,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
+                    boxShadow: '-4px 0 20px rgba(0,0,0,0.15)',
+                    borderLeft: '1px solid #eee',
+                    overflowY: 'auto',
+                    transition: 'right 0.2s'
                   }}>
                     <div style={{
                       background: 'white',
-                      padding: '2rem',
-                      borderRadius: '8px',
-                      boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-                      maxWidth: '600px',
-                      width: '90%',
-                      maxHeight: '80vh',
+                      padding: '1.5rem',
+                      minWidth: '320px',
+                      maxHeight: '100vh',
                       overflow: 'auto'
                     }}>
                       <div style={{
@@ -2005,8 +2160,8 @@ export default function App() {
                         borderBottom: '1px solid #eee',
                         paddingBottom: '1rem'
                       }}>
-                        <h3 style={{ margin: 0, color: 'black' }}>
-                          Selected Area Analysis
+                        <h3 style={{ margin: 0, color: 'black', fontSize: '1.1em' }}>
+                          Selected Area
                         </h3>
                         <button
                           style={{
@@ -2025,16 +2180,17 @@ export default function App() {
 
                       <div style={{
                         marginBottom: '15px',
-                        padding: '10px',
+                        padding: '8px',
                         backgroundColor: '#e8f5e8',
                         borderRadius: '4px',
-                        color: '#333'
+                        color: '#333',
+                        fontSize: '0.9em'
                       }}>
-                        <strong>Found {selectedAreaEntities.length} entities in selected area</strong>
+                        <strong>Found {selectedAreaEntities.length} entities</strong>
                       </div>
 
                       {selectedAreaEntities.length === 0 ? (
-                        <p style={{ color: '#666', textAlign: 'center', fontStyle: 'italic' }}>
+                        <p style={{ color: '#666', textAlign: 'center', fontStyle: 'italic', fontSize: '0.9em' }}>
                           No entities found in the selected area
                         </p>
                       ) : (
@@ -2049,61 +2205,106 @@ export default function App() {
 
                             return Object.entries(layerGroups).map(([layer, entities]) => (
                               <div key={layer} style={{
-                                marginBottom: '15px',
+                                marginBottom: '12px',
                                 border: '1px solid #ddd',
                                 borderRadius: '4px',
                                 overflow: 'hidden'
                               }}>
                                 <div style={{
                                   backgroundColor: '#f8f9fa',
-                                  padding: '10px',
+                                  padding: '8px',
                                   borderBottom: '1px solid #ddd',
                                   fontWeight: 'bold',
-                                  color: '#333'
+                                  color: '#333',
+                                  fontSize: '0.85em'
                                 }}>
-                                  Layer: {layer} ({entities.length} entities)
+                                  {layer} ({entities.length})
                                 </div>
-                                <div style={{ maxHeight: '200px', overflow: 'auto' }}>
+                                <div style={{ maxHeight: '180px', overflow: 'auto' }}>
                                   {entities.map((entity, idx) => (
                                     <div key={idx} style={{
-                                      padding: '8px 12px',
+                                      padding: '6px 8px',
                                       borderBottom: '1px solid #eee',
-                                      display: 'flex',
-                                      justifyContent: 'space-between',
-                                      alignItems: 'center',
-                                      fontSize: '0.9em'
+                                      fontSize: '0.8em'
                                     }}>
-                                      <span style={{ color: 'black' }}>
-                                        <strong>{entity.type}</strong>
-                                        {entity.handle && <span style={{ color: '#666' }}> (Handle: {entity.handle})</span>}
-                                        <br />
-                                        <small style={{ color: '#999' }}>
-                                          Location: {entity.location}
-                                          {entity.blockName && ` - Block: ${entity.blockName}`}
-                                        </small>
-                                      </span>
-                                      <button
-                                        style={{
-                                          padding: '4px 8px',
-                                          backgroundColor: '#007bff',
-                                          color: 'white',
-                                          border: 'none',
-                                          borderRadius: '3px',
-                                          cursor: 'pointer',
-                                          fontSize: '0.8em'
-                                        }}
-                                        onClick={() => {
-                                          if (entity.handle) {
-                                            setHighlightedEntity(entity.handle);
-                                            if (dbRef.current) {
-                                              const svgText = convertToSvg(dbRef.current, [], visibleLayers, entity.handle, visibleEntities);
-                                              setSvg(svgText);
+                                      <div style={{ marginBottom: '4px' }}>
+                                        <strong style={{ color: 'black' }}>{entity.type}</strong>
+                                        {entity.handle && <span style={{ color: '#666' }}> ({entity.handle})</span>}
+                                      </div>
+                                      <div style={{ color: '#999', fontSize: '0.75em', marginBottom: '6px' }}>
+                                        {entity.location}{entity.blockName && ` - ${entity.blockName}`}
+                                      </div>
+                                      <div style={{ display: 'flex', gap: '4px' }}>
+                                        <button
+                                          style={{
+                                            padding: '3px 6px',
+                                            backgroundColor: '#007bff',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '2px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.75em'
+                                          }}
+                                          onClick={() => {
+                                            if (entity.handle) {
+                                              setHighlightedEntity(entity.handle);
+                                              if (dbRef.current) {
+                                                const svgText = convertToSvg(dbRef.current, [], visibleLayers, entity.handle, visibleEntities, { aggregateForExport: false });
+                                                setSvg(svgText);
+                                              }
                                             }
-                                          }
-                                        }}
-                                      >
-                                        Highlight
-                                      </button>
+                                          }}
+                                        >
+                                          Highlight
+                                        </button>
+                                        <button
+                                          style={{
+                                            padding: '3px 6px',
+                                            backgroundColor: '#dc3545',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '2px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.75em'
+                                          }}
+                                          onClick={() => {
+                                            if (entity.handle && dbRef.current) {
+                                              const removed = removeEntityByHandle(entity.handle, dbRef.current);
+                                              if (removed) {
+                                                const svgText = convertToSvg(dbRef.current, [], visibleLayers, null, visibleEntities, { aggregateForExport: false });
+                                                setSvg(svgText);
+
+                                                if (fileInfo) {
+                                                  setFileInfo({
+                                                    ...fileInfo,
+                                                    totalEntities: Math.max(0, fileInfo.totalEntities - 1)
+                                                  });
+                                                }
+
+                                                const updatedEntities = selectedAreaEntities.filter(e => e.handle !== entity.handle);
+                                                setSelectedAreaEntities(updatedEntities);
+
+                                                if (entity.layer) {
+                                                  const allEntities = getAllEntities();
+                                                  const entitiesInLayer = allEntities.filter(e => e.layer === entity.layer);
+
+                                                  if (entitiesInLayer.length === 0) {
+                                                    const updatedAllLayers = allLayers.filter(l => l !== entity.layer);
+                                                    const updatedVisibleLayers = visibleLayers.filter(l => l !== entity.layer);
+                                                    setAllLayers(updatedAllLayers);
+                                                    setVisibleLayers(updatedVisibleLayers);
+                                                  }
+                                                }
+
+                                                setHighlightedEntity(null);
+                                              }
+                                            }
+                                          }}
+                                          title="Delete this entity"
+                                        >
+                                          Delete
+                                        </button>
+                                      </div>
                                     </div>
                                   ))}
                                 </div>

@@ -34,7 +34,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
     dropEntityTypes: new Set(['DIMENSION', 'LEADER', 'HATCH', 'POINT', 'ATTDEF', 'TOLERANCE', 'MLINE', 'TABLE', 'VIEWPORT', 'XLINE', 'RAY', 'OLE2FRAME', 'WIPEOUT', 'TRACE']),
     dropLayersLike: ['DEFPOINTS', 'DIMS', 'DIM', 'DIMENSIONS', 'ANNOTATION', 'ANNO', 'TEXT', 'MTEXT', 'SYMB', 'SYMBOL', 'SYMBOLS', 'XREF'],
     flattenToSingleLayer: true,
-    aggregatePaths: true,
+    aggregatePaths: false,
     exportMinified: true,
     decimalPlaces: 2,
     simplifyTolerance: 0.5,
@@ -48,9 +48,13 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
   if (opts && typeof opts === 'object') {
     if (typeof opts.decimalPlaces === 'number') config.decimalPlaces = Math.max(0, Math.min(3, opts.decimalPlaces));
     if (typeof opts.simplifyTolerance === 'number') config.simplifyTolerance = Math.max(0, Math.min(2, opts.simplifyTolerance));
-    if (opts.aggregateForExport === true) {
-      // Export mode: aggressively coalesce
-      config.aggregatePaths = true;
+    // if (opts.aggregateForExport === true) {
+    //   // Export mode: aggressively coalesce
+    //   config.aggregatePaths = true;
+    // }
+    if (Object.prototype.hasOwnProperty.call(opts, "aggregateForExport")) {
+      // Explicitly respect true/false
+      config.aggregatePaths = !!opts.aggregateForExport;
     }
   }
 
@@ -1509,9 +1513,20 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
         }
         return '';
       }
-      const tag = isClosed ? "polygon" : "polyline";
+      //   const tag = isClosed ? "polygon" : "polyline";
+      //   const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
+      //   return `<${tag} points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
+      // },
       const layerAttr = config.flattenToSingleLayer ? '' : ` data-layer="${e.layer ?? ''}"`;
-      return `<${tag} points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
+
+      // Use polygon for closed shapes, polyline for open ones
+      if (isClosed) {
+        console.log('Rendering closed LWPOLYLINE as polygon for better compatibility');
+        return `<polygon points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
+      } else {
+        console.log('Rendering open LWPOLYLINE as polyline');
+        return `<polyline points="${points.join(' ')}" ${stroke} data-handle="${e.handle ?? ''}"${layerAttr}/>`;
+      }
     },
     POLYGON: (e, color, stroke, transforms) => {
       if (!Array.isArray(e.vertices) || e.vertices.length < 3) return null;
@@ -1520,7 +1535,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
       const verts = snapAndCullPolyline(simplifyPolyline(e.vertices, tol), 0.25, 0.5);
       const points = verts.map(v => {
         const [x, y] = applyTransform(v.x, v.y, transforms);
-        updateBounds(x, y, 'LWPOLYLINE', e.handle);
+        updateBounds(x, y, 'POLYGON', e.handle);
         return `${round(x)},${round(y)}`;
       });
 
@@ -2128,7 +2143,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
           if (result.startsWith('<g ') || result.startsWith('<g>')) {
             const insertPos = result.indexOf('>');
             const updatedResult = result.slice(0, insertPos) +
-              ` ${dataHandle} ${entityClass}` +
+              ` ${dataHandle} ${entityClass} pointer-events="stroke"` +
               result.slice(insertPos);
             if (updatedResult) processedElements++;
             return updatedResult;
@@ -2137,7 +2152,7 @@ export function convertToSvg(db, transformStack = [], visibleLayers = null, high
             if (tagMatch) {
               const insertPos = result.indexOf(' ') > 0 ? result.indexOf(' ') : result.indexOf('>');
               const updatedResult = result.slice(0, insertPos) +
-                ` ${dataHandle} ${entityClass}` +
+                ` ${dataHandle} ${entityClass} pointer-events="stroke"` +
                 result.slice(insertPos);
               if (updatedResult) processedElements++;
               return updatedResult;
@@ -2444,7 +2459,6 @@ ${defs.join('\n')}
     return { layerGroups, usedEntities };
   };
 
-  // Updated function to generate hierarchical SVG content
   const generateHierarchicalSVGContent = () => {
     const { layerGroups, usedEntities } = generateSVGContent();
     const hierarchicalContent = [];
